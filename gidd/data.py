@@ -1,4 +1,5 @@
 import functools
+import os
 
 import numpy as np
 import torch
@@ -8,10 +9,23 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 
-def get_dataset(config):
+def get_dataset(config, num_proc=32):
     test_size = int(config.data.test_size)
-    train_ds = load_dataset(config.data.dataset_name, config.data.dataset_subset, split=f"train[:-{test_size}]", trust_remote_code=config.data.trust_remote_code, streaming=False)
-    test_ds = load_dataset(config.data.dataset_name, config.data.dataset_subset, split=f"train[-{test_size}:]", trust_remote_code=config.data.trust_remote_code, streaming=False)
+    n_proc = min(os.cpu_count(), num_proc)
+    train_ds = load_dataset(
+        config.data.dataset_name,
+        config.data.dataset_subset,
+        split=f"train[:-{test_size}]",
+        trust_remote_code=config.data.trust_remote_code,
+        num_proc=n_proc,
+    )
+    test_ds = load_dataset(
+        config.data.dataset_name,
+        config.data.dataset_subset,
+        split=f"train[-{test_size}:]",
+        trust_remote_code=config.data.trust_remote_code,
+        num_proc=n_proc,
+    )
 
     return train_ds, test_ds
 
