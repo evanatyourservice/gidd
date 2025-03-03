@@ -1,0 +1,22 @@
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gidd"
+description = "Generalized Interpolating Discrete Diffusion"
+version = "0.0.1"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Dimitri von Rütte"},
+    {name = "Janis Fluri"},
+    {name = "Yuhui Ding"},
+    {name = "Antonio Orvieto"},
+    {name = "Bernhard Schölkopf"},
+    {name = "Thomas Hofmann"}    
+]
+
+[tool.setuptools]
+packages = ["gidd"]
