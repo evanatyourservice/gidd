@@ -291,7 +291,9 @@ def main(config):
                 if is_main_process:
                     save_checkpoint(output_path, trainer, optimizer, state)
                 dist.barrier()
+                output_path.mkdir(exist_ok=True, parents=True)
                 save_rng_state(output_path, global_rank)
+                dist.barrier()
 
             pbar.update(1)
 
