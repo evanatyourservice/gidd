@@ -8,14 +8,8 @@
 
 1. Set up environment:
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && pip install -e .
 ```
 
-2. Install `flash_attn`:
-```bash
-pip install wheel
-pip install --no-build-isolation --no-cache flash_attn
-```
+2. (optional) Log into W&B (`wandb login`) for experiment tracking or disable it (`wandb disabled`) if you don't need/want it.
