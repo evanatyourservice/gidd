@@ -111,8 +111,8 @@ def main(config):
     logger = Logger(is_main_process)
     logger.init(
         name=config.logging.run_name,
-        entity="dvruette",
-        project="semantic-diffusion",
+        entity=config.logging.get("wandb_entity"),
+        project=config.logging.get("wandb_project"),
         config=OmegaConf.to_container(config, resolve=True),
     )
 
