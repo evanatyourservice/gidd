@@ -45,7 +45,7 @@ class Logger:
             wandb.log(*args, **kwargs)
 
 
-@hydra.main(config_path="configs", config_name="ours", version_base="1.1")
+@hydra.main(config_path="configs", config_name="gidd", version_base="1.1")
 def main(config):
     try:
         dist.init_process_group(backend="nccl")
