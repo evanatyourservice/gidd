@@ -88,7 +88,7 @@ def main(args):
         })
     samples = torch.cat(samples, dim=0).cpu()
 
-    torch.save(samples, samples_path.replace(".pt", f"-corrected-temp={args.temp}.pt"))
+    torch.save(samples, args.corrected_samples_path)
 
     df = pd.DataFrame(metrics)
     df["improvement"] = df["final_acc"] - df["init_acc"]
