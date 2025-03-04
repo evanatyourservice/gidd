@@ -51,7 +51,7 @@ def main(args):
 
         z_t = z_t.unsqueeze(0).to(device)
         z_t_init = z_t.clone()
-        t = torch.full(z_t.shape[0], device=device, fill_value=args.t0)
+        t = torch.full((z_t.shape[0],), device=device, fill_value=args.t0)
 
         logits = model(z_t, t)
         logits[..., tokenizer.mask_token_id] = -1e6

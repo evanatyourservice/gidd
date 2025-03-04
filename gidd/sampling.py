@@ -10,12 +10,12 @@ from gidd.utils import sample_categorical, clean_text
 
 
 class Sampler(nn.Module):
-    def __init__(self, config, model, tokenizer, noise_schedule: NoiseSchedule):
+    def __init__(self, model, tokenizer, noise_schedule: NoiseSchedule, t_eps: float = 1e-4):
         super().__init__()
-        self.config = config
         self.model = model
         self.tokenizer = tokenizer
         self.noise_schedule = noise_schedule
+        self.t_eps = t_eps
 
     @abstractmethod
     def _do_generate(self, num_samples, num_denoising_steps, max_length, show_progress=False, device=None):
@@ -23,7 +23,7 @@ class Sampler(nn.Module):
 
     @torch.no_grad()
     def generate(self, num_samples=1, num_denoising_steps=1000, max_length=None, decode=True, clean_decoded=True, show_progress=True):
-        max_length = max_length or self.config.model.max_seq_len
+        max_length = max_length or self.model.config.max_seq_len
         device = next(self.model.parameters()).device
 
         z_t = self._do_generate(num_samples, num_denoising_steps, max_length, show_progress=show_progress, device=device)
@@ -72,19 +72,16 @@ class GiddSampler(Sampler):
                 q_st = q_st / q_st.sum(-1, keepdim=True)
             return sample_categorical(q_st)
 
-    def __init__(self, config, model, tokenizer, noise_schedule: NoiseSchedule, compile_step=True, min_p=0.0):
-        super().__init__(config, model, tokenizer, noise_schedule)
+    def __init__(self, model, tokenizer, noise_schedule: NoiseSchedule, t_eps=1e-4, compile_step=True, min_p=0.0):
+        super().__init__(model, tokenizer, noise_schedule, t_eps=t_eps)
         self.sampling_step = self.DenoisingStep(model, noise_schedule, tokenizer, min_p=min_p)
         if compile_step:
             self.sampling_step = torch.compile(self.sampling_step)
 
     def _do_generate(self, num_samples, num_denoising_steps, max_length, show_progress=False, device=None):
-        assert self.config.model.T == "infty"
 
         ts = torch.linspace(0, 1, num_denoising_steps + 1, device=device).unsqueeze(-1)
-
-        eps = self.config.model.get("t_eps", 1e-4)
-        ts = (1 - 2 * eps) * ts + eps
+        ts = (1 - 2 * self.t_eps) * ts + self.t_eps
 
         # zt = sample_categorical(p_zt)
         z_t = self.noise_schedule.sample_prior((num_samples, max_length)).to(device, non_blocking=True)
@@ -107,15 +104,15 @@ class MDLMSampler(Sampler):
             sigma = -torch.log1p(-(1 - eps) * t.clip(eps, 1))
             return dsigma, sigma
 
-        def forward(self, z_t, t, tm1, i=None):
+        def forward(self, z_t, t, tm1, i=None, eps=1e-4):
             logits = self.model(z_t, t)
             logits[..., self.mask_id] = -1e6
 
             if i == 0:
                 z_tm1 = logits.argmax(-1)
             else:
-                _, sigma_t = self.get_sigmas(t)
-                _, sigma_tm1 = self.get_sigmas(tm1)
+                _, sigma_t = self.get_sigmas(t, eps=eps)
+                _, sigma_tm1 = self.get_sigmas(tm1, eps=eps)
 
                 move_chance_t = 1 - torch.exp(-sigma_t)
                 move_chance_tm1 = 1 - torch.exp(-sigma_tm1)
@@ -136,8 +133,8 @@ class MDLMSampler(Sampler):
             z_t = copy_flag * z_t + (1 - copy_flag) * z_tm1
             return z_t
 
-    def __init__(self, config, model, tokenizer, noise_schedule: NoiseSchedule, compile_step=True, min_p=0.0):
-        super().__init__(config, model, tokenizer, noise_schedule)
+    def __init__(self, model, tokenizer, noise_schedule: NoiseSchedule, t_eps=1e-4, compile_step=True, min_p=0.0):
+        super().__init__(model, tokenizer, noise_schedule, t_eps=t_eps)
         self.sampling_step = self.DenoisingStep(model, noise_schedule, tokenizer.mask_token_id, min_p=min_p)
         if compile_step:
             self.sampling_step = torch.compile(self.sampling_step)
@@ -145,22 +142,17 @@ class MDLMSampler(Sampler):
     def _do_generate(self, num_samples, num_denoising_steps, max_length, show_progress=False, device=None):
         z_t = self.noise_schedule.sample_prior((num_samples, max_length)).to(device, non_blocking=True)
 
-        if self.config.model.T != "infty":
-            num_denoising_steps = min(num_denoising_steps, self.config.model.T)
-            ts = torch.linspace(0, 1, num_denoising_steps + 1, device=device).unsqueeze(-1)
-            ts = (ts * self.config.model.T).floor() / self.config.model.T
-        else:
-            ts = torch.linspace(1e-4, 1 - 1e-4, num_denoising_steps + 1, device=device).unsqueeze(-1)
+        ts = torch.linspace(self.t_eps, 1 - self.t_eps, num_denoising_steps + 1, device=device).unsqueeze(-1)
 
         for i in tqdm.trange(num_denoising_steps - 1, -1, -1, desc="Generating samples", disable=not show_progress):
-            z_t = self.sampling_step(z_t, ts[i], ts[max(0, i-1)], i=i).clone()
+            z_t = self.sampling_step(z_t, ts[i], ts[max(0, i-1)], i=i, eps=self.t_eps).clone()
 
         return z_t
 
 
 class AutoregressiveSampler(Sampler):
-    def __init__(self, config, model, tokenizer, noise_schedule: NoiseSchedule, compile_step=True):
-        super().__init__(config, model, tokenizer, noise_schedule)
+    def __init__(self, model, tokenizer, noise_schedule: NoiseSchedule, compile_step=True):
+        super().__init__(model, tokenizer, noise_schedule)
         if compile_step:
             self.model = torch.compile(model)
 
@@ -189,12 +181,12 @@ class AutoregressiveSampler(Sampler):
 def get_sampler(config, model, tokenizer, noise_schedule: NoiseSchedule, compile_step=True, min_p=0.0):
     if config.model.type == "diffusion":
         if config.model.diffusion_process == "gidd":
-            return GiddSampler(config, model, tokenizer, noise_schedule, compile_step=compile_step, min_p=min_p)
+            return GiddSampler(model, tokenizer, noise_schedule, t_eps=config.model.t_eps, compile_step=compile_step, min_p=min_p)
         elif config.model.diffusion_process == "mdlm":
-            return MDLMSampler(config, model, tokenizer, noise_schedule, compile_step=compile_step, min_p=min_p)
+            return MDLMSampler(model, tokenizer, noise_schedule, t_eps=config.model.t_eps, compile_step=compile_step, min_p=min_p)
         else:
             raise ValueError(f"Unsupported forward process: {config.model.diffusion_process}")
     elif config.model.type == "autoregressive":
-        return AutoregressiveSampler(config, model, tokenizer, noise_schedule, compile_step=True)
+        return AutoregressiveSampler(model, tokenizer, noise_schedule, compile_step=True)
     else:
         raise ValueError(f"Unsupported model type: {config.model.type}")
