@@ -1,15 +1,31 @@
 # Generalized Interpolating Discrete Diffusion
 
-Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schölkopf, Thomas Hofmann
+By Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schölkopf, Thomas Hofmann
+
+[![arXiv](https://img.shields.io/badge/arXiv-coming_soon-d22c2c.svg)](https://arxiv.org/abs/coming.soon)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xv4RyZhXHkIpIZeMYahl_4kMthLxKdg_?usp=sharing)
+[![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-GIDD-f59a0c)](https://huggingface.co/collections/dvruette/generalized-interpolating-discrete-diffusion-67c6fc45663eafb85c6487af)
 
 ---
 
+We present Generalized Interpolating Discrete Diffusion (GIDD), a novel framework for training discrete diffusion models.
+GIDD can be seen as a generalization of the popular masked diffusion paradigm (MDM) to any diffusion process that can be written as a linear interpolation between the data distribution and some (time-variable) mixing distribution.
+We demonstrate the flexibility of GIDD by training models on a hybrid diffusion process that combines masking and uniform noise.
+The model therefore is trained to not only "fill in the blanks" (i.e. the masked tokens), but also to consider the correctness of already-filled-in tokens and, if necessary, replace incorrect tokens with more plausible ones.
+We show that GIDD models trained on hybrid noise have better sample quality (generative PPL) than mask-only models, and that they are able to identify and correct their own mistakes in generated samples through a self-correction step.
+This repository contains all our training and evaluation code necessary to reproduce the results from the paper.
+
+### Pretrained Models
+Our trained checkpoints are available on HuggingFace under the following links. All of them have been trained on 131B tokens from the [OpenWebText](https://huggingface.co/datasets/Skylion007/openwebtext) dataset with the [GPT-2 tokenizer](https://huggingface.co/openai-community/gpt2).
+
+| Model | Small (169.6M) | Base (424.5M) |
+|-------|-------|------|
+| GIDD+ ($p_u = 0.0$) | [dvruette/gidd-small-p_unif-0.0](https://huggingface.co/dvruette/gidd-small-p_unif-0.0) | [dvruette/gidd-base-p_unif-0.0](https://huggingface.co/dvruette/gidd-base-p_unif-0.0) |
+| GIDD+ ($p_u = 0.1$) | [dvruette/gidd-small-p_unif-0.1](https://huggingface.co/dvruette/gidd-small-p_unif-0.1) | [dvruette/gidd-base-p_unif-0.1](https://huggingface.co/dvruette/gidd-base-p_unif-0.1) |
+| GIDD+ ($p_u = 0.2$) | [dvruette/gidd-small-p_unif-0.2](https://huggingface.co/dvruette/gidd-small-p_unif-0.2) | [dvruette/gidd-base-p_unif-0.2](https://huggingface.co/dvruette/gidd-base-p_unif-0.2) |
 
 
-
-## Getting Started
-
-### Setup
+## Quick Start
 
 1. Set up environment:
 ```bash
@@ -17,18 +33,13 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && pip install -e .
 ```
 
-2. (optional) Log into W&B (`wandb login`) for experiment tracking or disable it (`wandb disabled`) if you don't need/want it.
-
-
-### Quick start
-
-For quickly downloading a trained model and generating samples, the `GiddPipeline` class is most convenient:
+For quickly downloading a trained model and playing around with it, the `GiddPipeline` class is most convenient:
 
 ```python
 from gidd import GiddPipeline
 
-# Load a pretrained model from HuggingFace
-pipe = GiddPipeline.from_pretrained("dvruette/gidd-small-p_unif-0.2", trust_remote_code=True)
+# Download a pretrained model from HuggingFace
+pipe = GiddPipeline.from_pretrained("dvruette/gidd-base-p_unif-0.2", trust_remote_code=True)
 
 # Generate samples
 texts = pipe.generate(num_samples=4, num_inference_steps=128)
@@ -40,12 +51,16 @@ print(corrected_texts)
 ```
 
 
+## Reproducing Experiments
+
 ### Training
+
 
 To reproduce the training runs from the paper, you can use the following commands.
 In this example, we are training on a single node with 8 GPUs, feel free to adjust the `--nnodes` and `--nproc_per_node` arguments to match your setup.
 The checkpoints will be saved under `./outputs/{YYYY-MM-DD}/{HH-MM-SS}/checkpoints/` by default.
 
+(optional) Log into W&B with `wandb login` for experiment tracking or disable via `wandb disabled` if you don't need/want it.
 
 ```bash
 # GIDD+ (p_u = 0.0)
@@ -62,7 +77,7 @@ torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name ar logging.ru
 ```
 
 
-### Inference
+### Evaluation
 
 There are also a couple of scripts to run inference and evaluate the trained models.
 
