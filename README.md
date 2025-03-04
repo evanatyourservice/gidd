@@ -20,6 +20,26 @@ pip install -r requirements.txt && pip install -e .
 2. (optional) Log into W&B (`wandb login`) for experiment tracking or disable it (`wandb disabled`) if you don't need/want it.
 
 
+### Quick start
+
+For quickly downloading a trained model and generating samples, the `GiddPipeline` class is most convenient:
+
+```python
+from gidd import GiddPipeline
+
+# Load a pretrained model from HuggingFace
+pipe = GiddPipeline.from_pretrained("dvruette/gidd-small-p_unif-0.2", trust_remote_code=True)
+
+# Generate samples
+texts = pipe.generate(num_samples=4, num_inference_steps=128)
+
+# Run self-correction step
+corrected_texts = pipe.self_correct(texts, num_inference_steps=128, temp=0.1)
+
+print(corrected_texts)
+```
+
+
 ### Training
 
 To reproduce the training runs from the paper, you can use the following commands.
