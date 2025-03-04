@@ -66,8 +66,8 @@ class HybridDiffusion(NoiseSchedule):
         mask = torch.zeros(self.vocab_size)
         mask[self.mask_id] = 1
         self.register_buffer("mask", mask, persistent=False)
-        self.register_parameter("log_B", nn.Parameter(torch.tensor(float(log_B)).clip(-clip_noise), requires_grad=True))
-        self.register_parameter("log_gamma", nn.Parameter(torch.tensor(float(gamma)).log(), requires_grad=True))
+        self.register_buffer("log_B", torch.tensor(float(log_B)).clip(-clip_noise))
+        self.register_buffer("log_gamma", torch.tensor(float(gamma)).log())
     
     def get_alpha_betapi(self, t, eps=1e-4):
         t = t[:, None]
