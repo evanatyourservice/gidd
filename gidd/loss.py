@@ -86,7 +86,6 @@ class GiddLoss(Loss):
         dtype = pred_features.dtype
         alpha_ratio, elbo_weights, ws = self.get_weights(t, z_t, input_ids)
 
-        pred_features = pred_features
         pred_features[..., self.mask_id] = torch.finfo(dtype).min
 
         p_0 = pred_features.softmax(-1).to(dtype)  # prevent automatic upcasting
