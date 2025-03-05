@@ -15,7 +15,7 @@ GIDD can be seen as a generalization of the popular masked diffusion paradigm (M
 We demonstrate the flexibility of GIDD by training models on a hybrid diffusion process that combines masking and uniform noise.
 The model therefore is trained to not only "fill in the blanks" (i.e. the masked tokens), but also to consider the correctness of already-filled-in tokens and, if necessary, replace incorrect tokens with more plausible ones.
 We show that GIDD models trained on hybrid noise have better sample quality (generative PPL) than mask-only models, and that they are able to identify and correct their own mistakes in generated samples through a self-correction step.
-This repository contains all our training and evaluation code necessary to reproduce the results from the paper.
+This repository contains all training and evaluation code necessary for reproducing the results in the paper.
 
 
 
