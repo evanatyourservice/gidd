@@ -27,13 +27,13 @@ Our trained checkpoints are available on HuggingFace under the following links. 
 
 ## Quick Start
 
-1. Set up environment:
+1. Set up the environment:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && pip install -e .
 ```
 
-For quickly downloading a trained model and playing around with it, the `GiddPipeline` class is most convenient:
+2. For quickly downloading a trained model and playing around with it, the `GiddPipeline` class is most convenient:
 
 ```python
 from gidd import GiddPipeline
