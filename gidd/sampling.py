@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import tqdm.auto as tqdm
 
 from gidd.diffusion_process import NoiseSchedule
-from gidd.utils import sample_categorical, clean_text
+from gidd.utils import sample_categorical
 
 
 class Sampler(nn.Module):

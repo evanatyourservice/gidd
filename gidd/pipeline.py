@@ -5,7 +5,7 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 from gidd.diffusion_process import HybridDiffusion
 from gidd.sampling import GiddSampler
-from gidd.utils import sample_categorical, clean_text
+from gidd.utils import sample_categorical
 
 
 class GiddPipeline(nn.Module):
