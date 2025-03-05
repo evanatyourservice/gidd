@@ -6,6 +6,8 @@ By Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schöl
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xv4RyZhXHkIpIZeMYahl_4kMthLxKdg_?usp=sharing)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-GIDD-f59a0c)](https://huggingface.co/collections/dvruette/generalized-interpolating-discrete-diffusion-67c6fc45663eafb85c6487af)
 
+![animation](animation.gif)
+
 ---
 
 We present Generalized Interpolating Discrete Diffusion (GIDD), a novel framework for training discrete diffusion models.
@@ -16,7 +18,6 @@ We show that GIDD models trained on hybrid noise have better sample quality (gen
 This repository contains all our training and evaluation code necessary to reproduce the results from the paper.
 
 
-![animation](animation.gif)
 
 ### Pretrained Models
 Our trained checkpoints are available on HuggingFace under the following links. All of them have been trained on 131B tokens from the [OpenWebText](https://huggingface.co/datasets/Skylion007/openwebtext) dataset with the [GPT-2 tokenizer](https://huggingface.co/openai-community/gpt2).
