@@ -6,9 +6,9 @@ By Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schöl
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xv4RyZhXHkIpIZeMYahl_4kMthLxKdg_?usp=sharing)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-GIDD-f59a0c)](https://huggingface.co/collections/dvruette/generalized-interpolating-discrete-diffusion-67c6fc45663eafb85c6487af)
 
-![animation](animation.gif)
-
 ---
+
+![animation](animation.gif)
 
 We present Generalized Interpolating Discrete Diffusion (GIDD), a novel framework for training discrete diffusion models.
 GIDD can be seen as a generalization of the popular masked diffusion paradigm (MDM) to any diffusion process that can be written as a linear interpolation between the data distribution and some (time-variable) mixing distribution.
