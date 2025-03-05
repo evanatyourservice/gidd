@@ -6,16 +6,16 @@ By Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schöl
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xv4RyZhXHkIpIZeMYahl_4kMthLxKdg_?usp=sharing)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-GIDD-f59a0c)](https://huggingface.co/collections/dvruette/generalized-interpolating-discrete-diffusion-67c6fc45663eafb85c6487af)
 
-![animation](animation.gif)
-
 ---
+
+![animation](animation.gif)
 
 We present Generalized Interpolating Discrete Diffusion (GIDD), a novel framework for training discrete diffusion models.
 GIDD can be seen as a generalization of the popular masked diffusion paradigm (MDM) to any diffusion process that can be written as a linear interpolation between the data distribution and some (time-variable) mixing distribution.
 We demonstrate the flexibility of GIDD by training models on a hybrid diffusion process that combines masking and uniform noise.
 The model therefore is trained to not only "fill in the blanks" (i.e. the masked tokens), but also to consider the correctness of already-filled-in tokens and, if necessary, replace incorrect tokens with more plausible ones.
 We show that GIDD models trained on hybrid noise have better sample quality (generative PPL) than mask-only models, and that they are able to identify and correct their own mistakes in generated samples through a self-correction step.
-This repository contains all our training and evaluation code necessary to reproduce the results from the paper.
+This repository contains all training and evaluation code necessary for reproducing the results in the paper.
 
 
 
