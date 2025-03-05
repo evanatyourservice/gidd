@@ -15,6 +15,9 @@ The model therefore is trained to not only "fill in the blanks" (i.e. the masked
 We show that GIDD models trained on hybrid noise have better sample quality (generative PPL) than mask-only models, and that they are able to identify and correct their own mistakes in generated samples through a self-correction step.
 This repository contains all our training and evaluation code necessary to reproduce the results from the paper.
 
+
+![animation](animation.gif)
+
 ### Pretrained Models
 Our trained checkpoints are available on HuggingFace under the following links. All of them have been trained on 131B tokens from the [OpenWebText](https://huggingface.co/datasets/Skylion007/openwebtext) dataset with the [GPT-2 tokenizer](https://huggingface.co/openai-community/gpt2).
 
