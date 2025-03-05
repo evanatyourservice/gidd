@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import tqdm
+import tqdm.auto as tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 from gidd.diffusion_process import HybridDiffusion
@@ -58,7 +58,6 @@ class GiddPipeline(nn.Module):
                 num_denoising_steps=num_inference_steps,
                 max_length=self.config.max_seq_len,
                 decode=True,
-                clean_decoded=True,
                 show_progress=show_progress,
             )
     
@@ -124,5 +123,5 @@ class GiddPipeline(nn.Module):
                 corrected_zts.append(z_t)
 
             corrected_zts = torch.cat(corrected_zts, dim=0)
-            corrected_samples = self.tokenizer.batch_decode(corrected_zts)
-            return [clean_text(x) for x in corrected_samples]
+            corrected_samples = self.tokenizer.batch_decode(corrected_zts, skip_special_tokens=True)
+            return corrected_samples

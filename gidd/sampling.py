@@ -22,16 +22,14 @@ class Sampler(nn.Module):
         raise NotImplementedError
 
     @torch.no_grad()
-    def generate(self, num_samples=1, num_denoising_steps=1000, max_length=None, decode=True, clean_decoded=True, show_progress=True):
+    def generate(self, num_samples=1, num_denoising_steps=1000, max_length=None, decode=True, show_progress=True):
         max_length = max_length or self.model.config.max_seq_len
         device = next(self.model.parameters()).device
 
         z_t = self._do_generate(num_samples, num_denoising_steps, max_length, show_progress=show_progress, device=device)
 
         if decode:
-            texts = self.tokenizer.batch_decode(z_t)
-            if clean_decoded:
-                texts = [clean_text(text) for text in texts]
+            texts = self.tokenizer.batch_decode(z_t, skip_special_tokens=True)
             return texts
         else:
             return z_t

@@ -4,18 +4,6 @@ import math
 import torch
 
 
-def clean_text(text):
-    if "[SEP]" in text:
-        text = (text.split("[SEP]")[0] + "[SEP]").strip()
-    elif "</s>" in text:
-        text = (text.split("</s>")[0] + "</s>").strip()
-    else:
-        text = text.split("[PAD]")[0].strip()
-    # text = text.replace(" [PAD]", "").replace("[SEP]", "").replace("[CLS]", "").replace(" [MASK]", "").replace("[PAD]", "").replace("[MASK]", "").strip()
-    text = re.sub(r"\s?(\[PAD\]|\[SEP\]|\[CLS\]|\[MASK\]|<s>|</s>)", "", text).strip()
-    return text
-
-
 def parse_dtype(dtype):
     if dtype == "fp16":
         return torch.float16
