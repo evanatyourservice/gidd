@@ -49,7 +49,7 @@ pipe = GiddPipeline.from_pretrained("dvruette/gidd-base-p_unif-0.2", trust_remot
 texts = pipe.generate(num_samples=4, num_inference_steps=128)
 
 # Run self-correction step
-corrected_texts = pipe.self_correction(texts, num_inference_steps=128, temp=0.1)
+corrected_texts = pipe.self_correction(texts, num_inference_steps=128, temperature=0.1)
 
 print(corrected_texts)
 ```
