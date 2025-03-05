@@ -11,20 +11,21 @@ from gidd.utils import sample_categorical, clean_text
 class GiddPipeline(nn.Module):
     @classmethod
     def from_pretrained(cls, model_name_or_path: str, **kwargs):
+        compile_step = kwargs.pop("compile_step", False)
         model = AutoModelForMaskedLM.from_pretrained(model_name_or_path, **kwargs)
         tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, **kwargs)
         config = model.config
         noise_schedule = HybridDiffusion(tokenizer, p_uniform=config.p_uniform)
-        return cls(model, noise_schedule, tokenizer, config)
+        return cls(model, noise_schedule, tokenizer, config, compile_step=compile_step)
     
-    def __init__(self, model, noise_schedule, tokenizer, config):
+    def __init__(self, model, noise_schedule, tokenizer, config, compile_step: bool = False):
         super().__init__()
         self.model = model
         self.noise_schedule = noise_schedule
         self.tokenizer = tokenizer
         self.config = config
 
-        self.sampler = GiddSampler(model, tokenizer, noise_schedule, t_eps=config.t_eps)
+        self.sampler = GiddSampler(model, tokenizer, noise_schedule, t_eps=config.t_eps, compile_step=compile_step)
 
     @torch.compiler.disable
     def progress_bar(self, iterable=None, total=None):
