@@ -2,7 +2,7 @@
 
 By Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schölkopf, Thomas Hofmann
 
-[![arXiv](https://img.shields.io/badge/arXiv-coming_soon-d22c2c.svg)](https://arxiv.org/abs/coming.soon)
+[![arXiv](https://img.shields.io/badge/arXiv-2503.04482-d22c2c.svg)](https://arxiv.org/abs/2503.04482)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xv4RyZhXHkIpIZeMYahl_4kMthLxKdg_?usp=sharing)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-GIDD-f59a0c)](https://huggingface.co/collections/dvruette/generalized-interpolating-discrete-diffusion-67c6fc45663eafb85c6487af)
 
