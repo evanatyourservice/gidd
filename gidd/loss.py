@@ -119,12 +119,8 @@ class GiddLoss(Loss):
 class MDLMLoss(Loss):
     def __init__(self, config, tokenizer, noise_schedule):
         super().__init__(config, tokenizer, noise_schedule)
-        self.pred_type = config.model.pred_type
         self.mask_id = tokenizer.mask_token_id
         self.neg_infty = -1e6
-        self.loss_weighting = config.loss.loss_weighting
-        self.min_loss_weight = config.loss.min_loss_weight
-        self.max_loss_weight = config.loss.max_loss_weight
 
     def get_sigmas(self, t, eps=1e-4):
         dsigma = (1 - eps) / (1 - (1 - eps) * t.clip(eps, 1))
