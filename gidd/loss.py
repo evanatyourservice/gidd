@@ -14,11 +14,11 @@ class Loss(torch.nn.Module, ABC):
         self.vocab_size = len(tokenizer)
 
     @abstractmethod
-    def loss(self, pred_features, target_features, input_ids, attention_mask, z_t, t):
+    def loss(self, logits, input_ids, attention_mask, z_t, t):
         raise NotImplementedError
 
-    def forward(self, pred_features, target_features, input_ids, attention_mask, z_t, t, reduction="tokenmean"):
-        loss, elbo, metrics = self.loss(pred_features, target_features, input_ids, attention_mask, z_t, t)
+    def forward(self, logits, input_ids, attention_mask, z_t, t, reduction="tokenmean"):
+        loss, elbo, metrics = self.loss(logits, input_ids, attention_mask, z_t, t)
 
         if reduction == "tokenmean":
             num_tokens = attention_mask.numel()
@@ -83,17 +83,16 @@ class GiddLoss(Loss):
 
         return alpha_ratio.to(orig_dtype), elbo_weights.to(orig_dtype), loss_weights.to(orig_dtype)
 
-    def loss(self, pred_features, target_features, input_ids, attention_mask, z_t, t):
-        dtype = pred_features.dtype
+    def loss(self, logits, input_ids, attention_mask, z_t, t):
+        dtype = logits.dtype
         alpha_ratio, elbo_weights, ws = self.get_weights(t, z_t, input_ids)
 
-        pred_features[..., self.mask_id] = torch.finfo(dtype).min
+        logits[..., self.mask_id] = torch.finfo(dtype).min
 
-        p_0 = pred_features.softmax(-1).to(dtype)  # prevent automatic upcasting
-        log_p_t = self.noise_schedule.probs_at_t(p_0, t)
-        log_q_t = self.noise_schedule.probs_at_t(target_features, t)
-        log_p_t.log_().clip_(min=-1e6)
-        log_q_t.log_().clip_(min=-1e6)
+        x = F.one_hot(input_ids, logits.shape[-1]).to(dtype)
+        x_hat = logits.softmax(-1).to(dtype)  # prevent automatic upcasting
+        log_q_t = self.noise_schedule.probs_at_t(x, t).log_().clip_(min=-1e6)
+        log_p_t = self.noise_schedule.probs_at_t(x_hat, t).log_().clip_(min=-1e6)
 
         kl_loss = F.kl_div(log_p_t, log_q_t, reduction="none", log_target=True).sum(-1)
 
@@ -127,10 +126,9 @@ class MDLMLoss(Loss):
         sigma = -torch.log1p(-(1 - eps) * t.clip(eps, 1))
         return dsigma, sigma
 
-    def loss(self, pred_features, target_features, input_ids, attention_mask, z_t, t):
+    def loss(self, logits, input_ids, attention_mask, z_t, t):
         dsigma, sigma_t = self.get_sigmas(t)
 
-        logits = pred_features
         logits[..., self.mask_id] = self.neg_infty
         logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
 
@@ -138,7 +136,7 @@ class MDLMLoss(Loss):
         logits[~mask_ids] = self.neg_infty
         logits = torch.where(~mask_ids.unsqueeze(-1).expand_as(logits), logits.scatter(-1, z_t.unsqueeze(-1), 0), logits)
 
-        rec_loss = F.cross_entropy(logits.flatten(0, 1), input_ids.flatten(0, 1), reduction="none").view_as(z_t)
+        rec_loss = F.cross_entropy(logits.transpose(1, 2), input_ids, reduction="none")
 
         weights = dsigma.unsqueeze(-1) / torch.expm1(sigma_t).unsqueeze(-1)
         weights = weights * mask_ids.to(weights.dtype)

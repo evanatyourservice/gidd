@@ -80,8 +80,8 @@ def main(config):
     if config.training.resume is None:
         tokenizer = get_tokenizer(config)
 
-        model = get_model(config, tokenizer)
-        noise_schedule = get_noise_schedule(config, tokenizer).to(device)
+        model = get_model(config, tokenizer, dtype=dtype)
+        noise_schedule = get_noise_schedule(config, tokenizer)
         loss_fn = get_loss(config, tokenizer, noise_schedule)
         trainer = get_trainer(config, model, tokenizer, noise_schedule, loss_fn, dtype)
         trainer = trainer.to(device)
@@ -150,6 +150,7 @@ def main(config):
         print(f"* Total batch size: {config.training.train_batch_size * world_size}")
         print(f"* Non-embedding parameters: {non_emb_params_str}")
         print(f"* Trainable parameters: {trainable_params_str}")
+        print(f"* Model dtype: {next(iter(model.parameters())).dtype}")
         print(f"*************************")
 
     if is_distributed and hasattr(train_dl.sampler, "set_epoch"):

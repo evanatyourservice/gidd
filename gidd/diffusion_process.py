@@ -38,9 +38,6 @@ class NoiseSchedule(nn.Module, ABC):
     def sample_prior(self, shape):
         return torch.full(shape, self.mask_id, dtype=torch.long, device=self.log_prior.device)
     
-    def get_features(self, input_ids, dtype=None):
-        return F.one_hot(input_ids, num_classes=self.vocab_size).to(dtype=dtype)
-    
     @abstractmethod
     def logits_at_t(self, features, t):
         raise NotImplementedError
@@ -49,11 +46,9 @@ class NoiseSchedule(nn.Module, ABC):
     def probs_at_t(self, prs, t):
         raise NotImplementedError
 
+    @abstractmethod
     def sample_zt(self, input_ids, t):
-        features = self.get_features(input_ids, dtype=t.dtype)
-        logits = self.logits_at_t(features, t)
-        z_t = sample_categorical(logits.softmax(-1))
-        return z_t, features
+        raise NotImplementedError
 
 
 class HybridDiffusion(NoiseSchedule):
@@ -123,6 +118,12 @@ class HybridDiffusion(NoiseSchedule):
         probs[..., self.mask_id] = t_gamma / C_t
         return probs.to(orig_dtype)
     
+    def sample_zt(self, input_ids, t):
+        x = F.one_hot(input_ids, num_classes=self.vocab_size).to(dtype=t.dtype)
+        probs = self.probs_at_t(x, t)
+        z_t = sample_categorical(probs)
+        return z_t
+    
 
 class MaskedDiffusion(NoiseSchedule):
     def __init__(self, tokenizer):
@@ -156,11 +157,13 @@ class MaskedDiffusion(NoiseSchedule):
         move_chance = 1 - torch.exp(-sigma)
         is_masked = torch.rand_like(input_ids.float()) < move_chance.unsqueeze(-1)
         z_t = torch.where(is_masked, self.mask_id, input_ids)
-        return z_t, self.get_features(input_ids)
+        return z_t
 
 
 def get_noise_schedule(config, tokenizer):
-    if config.model.diffusion_process == "gidd":
+    if config.model.type == "autoregressive":
+        return None
+    elif config.model.diffusion_process == "gidd":
         noise_schedule = HybridDiffusion(tokenizer, p_uniform=config.model.p_uniform)
     elif config.model.diffusion_process == "mdlm":
         noise_schedule = MaskedDiffusion(tokenizer)

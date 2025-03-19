@@ -33,12 +33,11 @@ class DiffusionTrainer(nn.Module):
 
         with torch.autocast(device_type=self.device.type, dtype=self.dtype):
             t = sample_t(self.config, batch_size, device=self.device)
-            z_t, target_features = self.noise_schedule.sample_zt(batch["input_ids"], t)
+            z_t = self.noise_schedule.sample_zt(batch["input_ids"], t)
 
-            pred_features = self.model(z_t, t)
+            logits = self.model(z_t, t)
             loss, _, metrics = self.loss_fn.forward(
-                pred_features=pred_features,
-                target_features=target_features,
+                logits=logits,
                 input_ids=batch["input_ids"],
                 attention_mask=batch["attention_mask"],
                 z_t=z_t,
@@ -72,7 +71,7 @@ class AutoregressiveTrainer(nn.Module):
 
             logits = self.model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], use_cache=False).logits
             logits = logits[:, :-1]
-            loss = self.loss_fn(logits.flatten(0, 1), labels.flatten(0, 1)).view_as(labels)
+            loss = self.loss_fn(logits.transpose(1, 2), labels)
             total_loss = (loss * loss_mask).sum()
             total_tokens = loss_mask.sum().float()
 
@@ -87,38 +86,6 @@ class AutoregressiveTrainer(nn.Module):
             "nll": loss.detach(),
             "ppl": loss.detach().exp(),
         }
-    
-    @torch.no_grad()
-    def compute_nll(self, batch, reduce_metrics=False, return_token_nlls=False):
-        batch = {k: v.to(self.device, non_blocking=True) for k, v in batch.items()}
-        labels = batch["input_ids"][:, 1:]
-        loss_mask = batch["attention_mask"][:, :-1]
-
-        with torch.autocast(device_type=self.device.type, dtype=self.dtype):
-            logits = self.model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], use_cache=False).logits[:, :-1]
-            loss = self.loss_fn(logits.flatten(0, 1), labels.flatten(0, 1)).view_as(labels)
-        
-        total_nll = (loss * loss_mask).sum()
-        total_tokens = loss_mask.sum()
-        total_batch_size = torch.tensor(batch["input_ids"].size(0), device=self.device)
-
-        if reduce_metrics and self.world_size > 1:
-            dist.all_reduce(total_nll)
-            dist.all_reduce(total_tokens)
-            dist.all_reduce(total_batch_size)
-
-        nll = total_nll / total_tokens
-        seq_nll = total_nll / total_batch_size
-
-        metrics = {
-            "elbo": nll,
-            "nll": nll,
-            "ppl": nll.exp(),
-            "seq_nll": seq_nll,
-            "seq_ppl": seq_nll.exp(),
-        }
-
-        return (metrics, loss) if return_token_nlls else metrics
 
 
 def get_trainer(config, model, tokenizer, noise_schedule, loss_fn, dtype=None):
