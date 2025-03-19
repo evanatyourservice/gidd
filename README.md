@@ -2,7 +2,7 @@
 
 By Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schölkopf, Thomas Hofmann
 
-[![arXiv](https://img.shields.io/badge/arXiv-coming_soon-d22c2c.svg)](https://arxiv.org/abs/coming.soon)
+[![arXiv](https://img.shields.io/badge/arXiv-2503.04482-d22c2c.svg)](https://arxiv.org/abs/2503.04482)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xv4RyZhXHkIpIZeMYahl_4kMthLxKdg_?usp=sharing)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-GIDD-f59a0c)](https://huggingface.co/collections/dvruette/generalized-interpolating-discrete-diffusion-67c6fc45663eafb85c6487af)
 
@@ -11,7 +11,7 @@ By Dimitri von Rütte, Janis Fluri, Yuhui Ding, Antonio Orvieto, Bernhard Schöl
 ![animation](animation.gif)
 
 We present Generalized Interpolating Discrete Diffusion (GIDD), a novel framework for training discrete diffusion models.
-GIDD can be seen as a generalization of the popular masked diffusion paradigm (MDM) to any diffusion process that can be written as a linear interpolation between the data distribution and some (time-variable) mixing distribution.
+GIDD can be seen as a generalization of the popular masked diffusion paradigm (MDM) to any diffusion process that can be written as a linear interpolation between a data distribution and some (time-variable) mixing distribution.
 We demonstrate the flexibility of GIDD by training models on a hybrid diffusion process that combines masking and uniform noise.
 The model therefore is trained to not only "fill in the blanks" (i.e. the masked tokens), but also to consider the correctness of already-filled-in tokens and, if necessary, replace incorrect tokens with more plausible ones.
 We show that GIDD models trained on hybrid noise have better sample quality (generative PPL) than mask-only models, and that they are able to identify and correct their own mistakes in generated samples through a self-correction step.
@@ -49,7 +49,7 @@ pipe = GiddPipeline.from_pretrained("dvruette/gidd-base-p_unif-0.2", trust_remot
 texts = pipe.generate(num_samples=4, num_inference_steps=128)
 
 # Run self-correction step
-corrected_texts = pipe.self_correction(texts, num_inference_steps=128, temperature=0.1)
+corrected_texts = pipe.self_correction(texts, num_inference_steps=128, early_stopping=True, temperature=0.1)
 
 print(corrected_texts)
 ```
