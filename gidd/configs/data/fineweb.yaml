@@ -1,7 +1,4 @@
+defaults:
+  - defaults
+
 dataset_name: HuggingFaceFW/fineweb
-dataset_subset: null
-trust_remote_code: True
-test_size: 100000
-num_workers: 4
-tokenizer_name: gpt2
-max_add_padding: 0

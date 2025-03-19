@@ -1,5 +1,6 @@
 import random
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -43,6 +44,18 @@ class Logger:
     def log(self, *args, **kwargs):
         if self.is_main_process:
             wandb.log(*args, **kwargs)
+
+
+@contextmanager
+def main_process_first():
+    if dist.is_initialized():
+        if dist.get_rank() == 0:
+            yield
+        else:
+            dist.barrier()
+            yield
+    else:
+        yield
 
 
 @hydra.main(config_path="configs", config_name="gidd", version_base="1.1")
@@ -104,7 +117,9 @@ def main(config):
             state
         ) = load_checkpoint_for_training(config.training.resume, device=device, dtype=dtype)
 
-    train_dl, test_dl = get_dataloaders(config, tokenizer)
+    with main_process_first():
+        train_dl, test_dl = get_dataloaders(config, tokenizer)
+    dist.barrier()
 
     max_lr = config.optimizer.lr
 

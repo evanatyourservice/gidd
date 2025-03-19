@@ -3,8 +3,8 @@ import os
 
 import numpy as np
 import torch
-from transformers import BatchEncoding
-from datasets import load_dataset
+from transformers import BatchEncoding, PreTrainedTokenizer
+from datasets import load_dataset, Dataset
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
@@ -30,9 +30,67 @@ def get_dataset(config, num_proc=32):
     return train_ds, test_ds
 
 
+def tokenize_dataset(
+    ds: Dataset,
+    tokenizer: PreTrainedTokenizer,
+    max_seq_len: int = 512,
+    sequence_packing: bool = False,
+    batch_size: int = 1024,
+    num_proc: int = 32,
+    cache_file_name: str | None = None,
+):
+    n_proc = min(os.cpu_count(), num_proc)
+    bos_token_id = tokenizer.bos_token_id or tokenizer.cls_token_id
+    eos_token_id = tokenizer.eos_token_id or tokenizer.sep_token_id
+    padding = False if sequence_packing else "max_length"
+
+    tokenizer_max_len = tokenizer.model_max_length
+    tokenizer.model_max_length = 10_000_000
+
+    def tokenize_fn(examples):
+        tokens = tokenizer(
+            examples["text"],
+            truncation=False,
+            padding=False,
+        )["input_ids"]
+        tokens = [[bos_token_id] + x + ([] if sequence_packing else [eos_token_id]) for x in tokens]
+        if sequence_packing:
+            tokens = np.concatenate(tokens, axis=0)
+            tokens = tokens[: len(tokens) - len(tokens) % max_seq_len]
+            tokens = tokens.reshape(-1, max_seq_len)
+        else:
+            tokens = [
+                np.pad(x, (0, max_seq_len - len(x) % max_seq_len), mode="constant", constant_values=tokenizer.pad_token_id)
+                for x in tokens
+            ]
+            tokens = [x.reshape(-1, max_seq_len) for x in tokens]
+            tokens = np.concatenate(tokens, axis=0)
+        return {"input_ids": tokens}
+
+    ds = ds.map(
+        tokenize_fn,
+        batched=True,
+        batch_size=batch_size,
+        cache_file_name=cache_file_name,
+        remove_columns=["text"],
+        num_proc=n_proc,
+    )
+
+    tokenizer.model_max_length = tokenizer_max_len
+    return ds
+
+
 def default_collator(config, tokenizer, examples, text_key="text"):
     examples = [x[text_key] for x in examples]
     return tokenizer(examples, padding="max_length", truncation=True, max_length=config.model.max_seq_len, return_tensors="pt")
+
+
+def pretokenized_collator(examples, pad_token_id=0, tokens_key="input_ids"):
+    input_ids = np.stack([np.array(x[tokens_key]) for x in examples], axis=0)
+    attn_masks = (input_ids != pad_token_id).astype(np.int32)
+    input_ids = torch.from_numpy(input_ids).to(torch.long)
+    attn_masks = torch.from_numpy(attn_masks).to(torch.long)
+    return BatchEncoding({"input_ids": input_ids, "attention_mask": attn_masks}, tensor_type="pt", n_sequences=len(input_ids))
 
 
 def subsample_collator(config, tokenizer, examples, text_key="text"):
@@ -101,7 +159,29 @@ def get_dataloaders(config, tokenizer, train_batch_size=None, eval_batch_size=No
 
     train_ds, test_ds = get_dataset(config)
 
-    collate_fn = functools.partial(subsample_collator, config, tokenizer, text_key="text")
+    if config.data.pre_tokenize:
+        max_seq_len = config.model.max_seq_len
+        train_ds = tokenize_dataset(
+            ds=train_ds,
+            tokenizer=tokenizer,
+            max_seq_len=max_seq_len,
+            sequence_packing=config.data.sequence_packing,
+            cache_file_name=f"cache-{config.data.dataset_name}_{config.data.dataset_subset}_{config.data.tokenizer_name}_{max_seq_len}_{config.data.sequence_packing}_train.arrow"
+        )
+        test_ds = tokenize_dataset(
+            ds=test_ds,
+            tokenizer=tokenizer,
+            max_seq_len=max_seq_len,
+            sequence_packing=config.data.sequence_packing,
+            cache_file_name=f"cache-{config.data.dataset_name}_{config.data.dataset_subset}_{config.data.tokenizer_name}_{max_seq_len}_{config.data.sequence_packing}_test.arrow"
+        )
+
+        collate_fn = functools.partial(pretokenized_collator, pad_token_id=tokenizer.pad_token_id, tokens_key="input_ids")
+    else:
+        if config.data.sequence_packing:
+            raise ValueError("Sequence packing requires pre-tokenization.")
+
+        collate_fn = functools.partial(subsample_collator, config, tokenizer, text_key="text")
 
     train_dl = _get_dataloader(config, train_ds, shuffle=True, drop_last=True, batch_size=train_batch_size, collate_fn=collate_fn)
     test_dl = _get_dataloader(config, test_ds, shuffle=False, drop_last=False, batch_size=eval_batch_size, collate_fn=collate_fn)
