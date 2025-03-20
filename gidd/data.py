@@ -42,6 +42,7 @@ def cached_dataset(cache_dir: str, file_name: str, generate_fn: Callable[[], Dat
     cache_path = os.path.join(cache_dir, file_name)
     if os.path.exists(cache_path):
         ds = Dataset.load_from_disk(cache_path)
+        return ds
     else:
         ds = generate_fn()
         os.makedirs(cache_dir, exist_ok=True)
