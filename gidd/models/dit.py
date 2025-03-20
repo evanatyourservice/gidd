@@ -358,9 +358,9 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
     self.config = config
     self.vocab_size = vocab_size
+    self.rounded_vocab_size = vocab_size + (128 - vocab_size % 128) % 128
 
-    self.vocab_embed = EmbeddingLayer(config.model.hidden_size,
-                                      vocab_size)
+    self.vocab_embed = EmbeddingLayer(config.model.hidden_size, self.rounded_vocab_size)
     self.sigma_map = TimestepEmbedder(config.model.cond_dim)
     self.rotary_emb = Rotary(
       config.model.hidden_size // config.model.n_heads,
@@ -377,7 +377,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
     self.output_layer = DDitFinalLayer(
       config.model.hidden_size,
-      vocab_size,
+      self.rounded_vocab_size,
       config.model.cond_dim)
     
     self.register_buffer("logit_bias", torch.full((1, 1, 1), 0.0))

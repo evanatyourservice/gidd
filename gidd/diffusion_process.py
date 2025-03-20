@@ -116,6 +116,7 @@ class HybridDiffusion(NoiseSchedule):
         probs = prs.mul(alpha_t.unsqueeze(-1))
         probs.add_((c_t / C_t).unsqueeze(-1))
         probs[..., self.mask_id] = t_gamma / C_t
+        probs[..., self.vocab_size:] = 0
         return probs.to(orig_dtype)
     
     def sample_zt(self, input_ids, t):
