@@ -1,3 +1,4 @@
+import os
 import random
 import time
 from contextlib import contextmanager
@@ -51,6 +52,7 @@ def main_process_first():
     if dist.is_initialized():
         if dist.get_rank() == 0:
             yield
+            dist.barrier()
         else:
             dist.barrier()
             yield
@@ -61,7 +63,7 @@ def main_process_first():
 @hydra.main(config_path="configs", config_name="gidd", version_base="1.1")
 def main(config):
     try:
-        dist.init_process_group(backend="nccl")
+        dist.init_process_group(backend="nccl", device_id=torch.device("cuda", int(os.environ['LOCAL_RANK'])))
         world_size = dist.get_world_size()
         global_rank = dist.get_rank()  # only a single group, don't have to worry about local vs. global rank
         is_main_process = (global_rank == 0)
@@ -119,7 +121,6 @@ def main(config):
 
     with main_process_first():
         train_dl, test_dl = get_dataloaders(config, tokenizer)
-    dist.barrier()
 
     max_lr = config.optimizer.lr
 
@@ -312,6 +313,10 @@ def main(config):
                 dist.barrier()
 
             pbar.update(1)
+
+    if is_distributed:
+        dist.destroy_process_group()
+
 
 if __name__ == "__main__":
     main()
