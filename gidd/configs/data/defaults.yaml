@@ -6,3 +6,4 @@ sequence_packing: false
 max_add_padding: 0
 trust_remote_code: False
 dataset_subset: null
+cache_dir: ./cache

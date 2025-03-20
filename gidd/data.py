@@ -1,8 +1,13 @@
 import functools
+import hashlib
+import json
 import os
+import shutil
+from typing import Callable
 
 import numpy as np
 import torch
+import hydra
 from transformers import BatchEncoding, PreTrainedTokenizer
 from datasets import load_dataset, Dataset
 from torch.utils.data import DataLoader
@@ -30,6 +35,24 @@ def get_dataset(config, num_proc=32):
     return train_ds, test_ds
 
 
+def cached_dataset(cache_dir: str, file_name: str, generate_fn: Callable[[], Dataset]) -> Dataset:
+    if cache_dir is None:
+        return generate_fn()
+
+    cache_path = os.path.join(cache_dir, file_name)
+    if os.path.exists(cache_path):
+        ds = Dataset.load_from_disk(cache_path)
+    else:
+        ds = generate_fn()
+        os.makedirs(cache_dir, exist_ok=True)
+        try:
+            ds.save_to_disk(cache_path)
+        except Exception as e:
+            shutil.rmtree(cache_path)
+            raise e
+        return ds
+
+
 def tokenize_dataset(
     ds: Dataset,
     tokenizer: PreTrainedTokenizer,
@@ -37,12 +60,10 @@ def tokenize_dataset(
     sequence_packing: bool = False,
     batch_size: int = 1024,
     num_proc: int = 32,
-    cache_file_name: str | None = None,
 ):
     n_proc = min(os.cpu_count(), num_proc)
     bos_token_id = tokenizer.bos_token_id or tokenizer.cls_token_id
     eos_token_id = tokenizer.eos_token_id or tokenizer.sep_token_id
-    padding = False if sequence_packing else "max_length"
 
     tokenizer_max_len = tokenizer.model_max_length
     tokenizer.model_max_length = 10_000_000
@@ -71,7 +92,6 @@ def tokenize_dataset(
         tokenize_fn,
         batched=True,
         batch_size=batch_size,
-        cache_file_name=cache_file_name,
         remove_columns=["text"],
         num_proc=n_proc,
     )
@@ -161,19 +181,28 @@ def get_dataloaders(config, tokenizer, train_batch_size=None, eval_batch_size=No
 
     if config.data.pre_tokenize:
         max_seq_len = config.model.max_seq_len
-        train_ds = tokenize_dataset(
-            ds=train_ds,
-            tokenizer=tokenizer,
-            max_seq_len=max_seq_len,
-            sequence_packing=config.data.sequence_packing,
-            cache_file_name=f"cache-{config.data.dataset_name}_{config.data.dataset_subset}_{config.data.tokenizer_name}_{max_seq_len}_{config.data.sequence_packing}_train.arrow"
+        sequence_packing = config.data.sequence_packing
+        cache_key = hashlib.sha256(
+            json.dumps(
+                {
+                    "dataset_name": config.data.dataset_name,
+                    "subset": config.data.dataset_subset,
+                    "tokenizer_name": config.data.tokenizer_name,
+                    "max_seq_len": max_seq_len,
+                    "sequence_packing": sequence_packing,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        train_ds = cached_dataset(
+            cache_dir=hydra.utils.to_absolute_path(config.data.cache_dir),
+            file_name=f"cache-{config.data.dataset_name.replace('/', '--')}-train-{cache_key}",
+            generate_fn=functools.partial(tokenize_dataset, ds=train_ds, tokenizer=tokenizer, max_seq_len=max_seq_len, sequence_packing=sequence_packing),
         )
-        test_ds = tokenize_dataset(
-            ds=test_ds,
-            tokenizer=tokenizer,
-            max_seq_len=max_seq_len,
-            sequence_packing=config.data.sequence_packing,
-            cache_file_name=f"cache-{config.data.dataset_name}_{config.data.dataset_subset}_{config.data.tokenizer_name}_{max_seq_len}_{config.data.sequence_packing}_test.arrow"
+        test_ds = cached_dataset(
+            cache_dir=hydra.utils.to_absolute_path(config.data.cache_dir),
+            file_name=f"cache-{config.data.dataset_name.replace('/', '--')}-test-{cache_key}",
+            generate_fn=functools.partial(tokenize_dataset, ds=test_ds, tokenizer=tokenizer, max_seq_len=max_seq_len, sequence_packing=sequence_packing),
         )
 
         collate_fn = functools.partial(pretokenized_collator, pad_token_id=tokenizer.pad_token_id, tokens_key="input_ids")
