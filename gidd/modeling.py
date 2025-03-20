@@ -12,7 +12,7 @@ except ImportError:
 def get_tokenizer(config):
     tokenizer = AutoTokenizer.from_pretrained(config.data.tokenizer_name)
     if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     if tokenizer.mask_token_id is None:
         tokenizer.add_special_tokens({"mask_token": "[MASK]"})
     tokenizer.model_max_length = config.model.max_seq_len
