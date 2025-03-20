@@ -127,8 +127,8 @@ def main(config):
     logger = Logger(is_main_process)
     logger.init(
         name=config.logging.run_name,
-        entity=config.logging.get("wandb_entity"),
-        project=config.logging.get("wandb_project"),
+        entity=config.logging.wandb_entity,
+        project=config.logging.wandb_project,
         config=OmegaConf.to_container(config, resolve=True),
     )
 
@@ -242,7 +242,7 @@ def main(config):
                 "train/lr": curr_lr,
                 "train/step": step + 1,
                 "train/grad_norm": norm.item(),
-                "train/epoch": state.epoch,
+                "train/epoch": step / len(train_dl),
                 "train/total_tokens": state.total_tokens,
                 "train/total_flops": state.total_flops,
                 "train/tokens_per_sec": batch_tokens / step_time,
