@@ -1,3 +1,4 @@
+import datetime
 import os
 import random
 import time
@@ -63,13 +64,20 @@ def main_process_first():
 @hydra.main(config_path="configs", config_name="gidd", version_base="1.1")
 def main(config):
     try:
-        dist.init_process_group(backend="nccl", device_id=torch.device("cuda", int(os.environ['LOCAL_RANK'])))
+        local_rank = int(os.environ['LOCAL_RANK'])
+        torch.cuda.set_device(local_rank)
+        dist.init_process_group(
+            backend="nccl",
+            timeout=datetime.timedelta(minutes=30),
+            device_id=torch.device("cuda", local_rank),
+        )
         world_size = dist.get_world_size()
         global_rank = dist.get_rank()  # only a single group, don't have to worry about local vs. global rank
         is_main_process = (global_rank == 0)
     except RuntimeError:
         print("Distributed training not available, running on single device.")
         world_size = 1
+        local_rank = 0
         global_rank = 0
         is_main_process = True
     with open_dict(config):
@@ -89,7 +97,7 @@ def main(config):
     torch.backends.cuda.enable_flash_sdp(enabled=True)
 
     dtype = parse_dtype(config.training.dtype)
-    device = torch.device(f"cuda:{global_rank}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using {device=} and {dtype=}")
 
     if config.training.resume is None:
