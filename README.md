@@ -44,6 +44,7 @@ from gidd import GiddPipeline
 
 # Download a pretrained model from HuggingFace
 pipe = GiddPipeline.from_pretrained("dvruette/gidd-base-p_unif-0.2", trust_remote_code=True)
+pipe.to(device)
 
 # Generate samples
 texts = pipe.generate(num_samples=4, num_inference_steps=128)
