@@ -43,6 +43,7 @@ pip install -r requirements.txt && pip install -e .
 from gidd import GiddPipeline
 
 # Download a pretrained model from HuggingFace
+device = "cuda" if torch.cuda.is_available() else "cpu"
 pipe = GiddPipeline.from_pretrained("dvruette/gidd-base-p_unif-0.2", trust_remote_code=True)
 pipe.to(device)
 
