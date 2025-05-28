@@ -57,7 +57,7 @@ class HybridDiffusion(NoiseSchedule):
         self.clip_noise = clip_noise
         self.p_uniform = max(np.exp(-clip_noise), p_uniform)
 
-        log_B = gamma*np.log(2) - np.log1p((1 - 2*p_uniform) / p_uniform)  # this is equal to log(2**gamma * p_uniform / (1 - p_uniform))
+        log_B = gamma*np.log(2) + np.log(p_uniform) - np.log(1 - p_uniform)
         self.register_buffer("log_B", torch.tensor(float(log_B)).clip(-clip_noise))
         self.register_buffer("log_gamma", torch.tensor(float(gamma)).log())
 
