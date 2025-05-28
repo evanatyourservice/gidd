@@ -57,73 +57,44 @@ class HybridDiffusion(NoiseSchedule):
         self.clip_noise = clip_noise
         self.p_uniform = max(np.exp(-clip_noise), p_uniform)
 
-        log_B = -np.log1p((1 - self.p_uniform) / self.p_uniform * self.vocab_size / 2)
+        log_B = gamma*np.log(2) - np.log1p((1 - 2*p_uniform) / p_uniform)  # this is equal to log(2**gamma * p_uniform / (1 - p_uniform))
+        self.register_buffer("log_B", torch.tensor(float(log_B)).clip(-clip_noise))
+        self.register_buffer("log_gamma", torch.tensor(float(gamma)).log())
+
         mask = torch.zeros(self.vocab_size)
         mask[self.mask_id] = 1
         self.register_buffer("mask", mask, persistent=False)
-        self.register_buffer("log_B", torch.tensor(float(log_B)).clip(-clip_noise))
-        self.register_buffer("log_gamma", torch.tensor(float(gamma)).log())
+
+        unif = (1 - self.mask) / (self.vocab_size - 1)
+        self.register_buffer("unif", unif, persistent=False)
     
     def get_alpha_betapi(self, t, eps=1e-4):
         t = t[:, None]
         t1m = 1 - t
 
         gamma = self.log_gamma.exp()
-        # .pow() autocasts to fp32
-        t_gamma = t.pow(gamma)
-        t1m_gamma = t1m.pow(gamma)
-
         B = self.log_B.exp()
-        c_t = t_gamma.sqrt() * t1m_gamma.sqrt() * B
-        C_t = t_gamma + t1m_gamma + (self.vocab_size - 2) * c_t
+        # .pow() autocasts to fp32
+        c_t = t.pow(gamma/2) * t1m.pow(gamma/2) * B
+        C_t = 1 + c_t
         # C_t should never be much smaller than 1,
         # but just in case it is, we clip it to avoid numerical instability
         C_t = C_t.clip(eps)
 
-        alpha_t = (t1m_gamma - c_t) / C_t
-        beta_pi = (t_gamma * self.mask + c_t * (1 - self.mask)) / C_t
+        alpha_t = t1m / C_t
+        beta_pi = (t * self.mask + c_t * self.unif) / C_t
         return alpha_t, beta_pi
 
     def logits_at_t(self, features, t):
-        t = t[..., None, None]
-        gamma = self.log_gamma.exp().to(t.dtype)
-        log_B = self.log_B.to(t.dtype)
-        xi_t = gamma / 2 * torch.log((1 - t) / t).clip(-self.clip_noise, self.clip_noise)
-        logits = features.mul(xi_t - log_B)
-        logits.add_(log_B)
-        logits[..., self.mask_id] = -xi_t.squeeze(-1).expand_as(logits[..., self.mask_id])
-        return logits
+        raise NotImplementedError("logits_at_t is not implemented for HybridDiffusion. Use probs_at_t instead.")
     
     def probs_at_t(self, prs, t, eps=1e-4):
         orig_dtype = prs.dtype
-        t = t[:, None]
-        t1m = 1 - t
+        alpha_t, beta_pi = self.get_alpha_betapi(t, eps=eps)
 
-        gamma = self.log_gamma.exp()
-        # .pow() autocasts to fp32
-        t_gamma = t.pow(gamma)
-        t1m_gamma = t1m.pow(gamma)
-
-        B = self.log_B.exp()
-        c_t = t_gamma.sqrt() * t1m_gamma.sqrt() * B
-        C_t = t_gamma + t1m_gamma + (self.vocab_size - 2) * c_t
-        # C_t should never be much smaller than 1, but just in case it is, we clip it to avoid numerical instability
-        C_t = C_t.clip(eps)
-
-        alpha_t = (t1m_gamma - c_t) / C_t
-
-        # beta_pi_hat = (t_gamma * mask + c_t * (1 - mask)) / C_t
         probs = prs.mul(alpha_t.unsqueeze(-1))
-        probs.add_((c_t / C_t).unsqueeze(-1))
-        probs[..., self.mask_id] = t_gamma / C_t
-        probs[..., self.vocab_size:] = 0
+        probs.add_(beta_pi.unsqueeze(1))
         return probs.to(orig_dtype)
-    
-    def sample_zt(self, input_ids, t):
-        x = F.one_hot(input_ids, num_classes=self.vocab_size).to(dtype=t.dtype)
-        probs = self.probs_at_t(x, t)
-        z_t = sample_categorical(probs)
-        return z_t
     
 
 class MaskedDiffusion(NoiseSchedule):
