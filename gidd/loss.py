@@ -45,39 +45,28 @@ class GiddLoss(Loss):
 
         gamma = self.noise_schedule.log_gamma.exp()
         t_gamma = t.pow(gamma)
-        t_gamma_prime = gamma * t.pow(gamma - 1)
         t1m_gamma = t1m.pow(gamma)
-        t1m_gamma_prime = -t1m.pow(gamma - 1)
         B = self.noise_schedule.log_B.exp()
 
         c_t = t_gamma.sqrt() * t1m_gamma.sqrt() * B
         c_t_prime = (gamma / 2) * (1 - 2 * t) / (t * t1m) * c_t
 
-        C_t = t_gamma + t1m_gamma + (self.vocab_size - 2) * c_t
-        C_t_prime = t_gamma_prime + t1m_gamma_prime + (self.vocab_size - 2) * c_t_prime
-
-        alpha_hat = t1m_gamma - c_t
-        alpha_hat_prime = t1m_gamma_prime - c_t_prime
-
         is_mask = (z_t == self.mask_id).float()
-        pi_hat = t_gamma * is_mask + c_t * (1 - is_mask)
-        pi_hat_prime = t_gamma_prime * is_mask + c_t_prime * (1 - is_mask)
-
-        alpha = alpha_hat / C_t
-        pi_beta = pi_hat / C_t
-        alpha_ratio = alpha_hat_prime / alpha_hat - C_t_prime / C_t
-        omega_t = (pi_hat_prime - alpha_hat_prime / alpha_hat * pi_hat) / C_t
-
         is_x = (z_t == input_ids).float()
-        # elbo_weights = omega_zt / q(zt | x)
-        elbo_weights = (1 - is_x) * (omega_t / pi_beta) + is_x * (omega_t / (alpha + pi_beta))
+
+        alpha_ratio = -1 / (1 - t) - c_t_prime / (1 + c_t)
+        weight_on_x = (c_t + (1 - t) * c_t_prime) / ((1 - t)*(1 - t + c_t))
+        weight_on_u = (c_t + (1 - t) * c_t_prime) / ((1 - t)*c_t)
+        weight_on_m = 1 / ((1 - t)*t)
+
+        elbo_weights = is_x * weight_on_x + is_mask * weight_on_m + (1 - is_x - is_mask) * weight_on_u
 
         loss_weights = elbo_weights.clone()
         if self.loss_weighting == "clip":
             loss_weights.clip_(self.min_loss_weight, self.max_loss_weight)
         elif self.loss_weighting == "dynamic":
-            log_snr = -(alpha / (1 - alpha)).log().clip(-20, 20)
-            x_scale = B * torch.exp(gamma / 2 * log_snr)
+            log_snr = torch.sigmoid(-t).clip(-20, 20)  # not exactly the log-SNR, but close enough if C_t is close to 1
+            x_scale = B / self.vocab_size * torch.exp(gamma / 2 * log_snr)
             loss_weights = (1 - is_x) * ((1 - is_mask) + 2 * is_mask) + is_x * x_scale
             loss_weights.clip_(self.min_loss_weight, self.max_loss_weight)
 
