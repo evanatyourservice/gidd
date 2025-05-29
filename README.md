@@ -90,7 +90,7 @@ There are also a couple of scripts to run inference and evaluate the trained mod
 #### Generate samples
 The following command will generate `num_samples=16` samples in `num_denoising_steps=128` iterations from the model checkpoint located at `path` and save them to `samples_dir=samples.pt`.
 ```bash
-python gidd/eval/generate_samples.py path=./outputs/path/to/checkpoint/ samples_dir=samples.pt num_samples=16 num_denoising_steps=128 batch_size=16
+python gidd/eval/generate_samples.py path=./outputs/path/to/checkpoint/ samples_path=samples.pt num_samples=16 num_denoising_steps=128 batch_size=16
 ```
 
 #### Generative PPL
