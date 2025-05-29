@@ -95,6 +95,12 @@ class HybridDiffusion(NoiseSchedule):
         probs = prs.mul(alpha_t.unsqueeze(-1))
         probs.add_(beta_pi.unsqueeze(1))
         return probs.to(orig_dtype)
+
+    def sample_zt(self, input_ids, t):
+        x = F.one_hot(input_ids, num_classes=self.vocab_size).to(dtype=t.dtype)
+        probs = self.probs_at_t(x, t)
+        z_t = sample_categorical(probs)
+        return z_t
     
 
 class MaskedDiffusion(NoiseSchedule):
