@@ -86,6 +86,8 @@ torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name ar logging.ru
 ### Evaluation
 
 There are also a couple of scripts to run inference and evaluate the trained models.
+Note that these scripts expect the checkpoint format that is saved by the training script, so the checkpoints from HuggingFace are not directly compatible.
+You can download our original training checkpoints from here: https://polybox.ethz.ch/index.php/s/BbxZcYDSoXf8aL4
 
 #### Generate samples
 The following command will generate `num_samples=16` samples in `num_denoising_steps=128` iterations from the model checkpoint located at `path` and save them to `samples_dir=samples.pt`.
