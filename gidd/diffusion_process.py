@@ -93,7 +93,7 @@ class HybridDiffusion(NoiseSchedule):
         alpha_t, beta_pi = self.get_alpha_betapi(t, eps=eps)
 
         probs = prs.mul(alpha_t.unsqueeze(-1))
-        probs.add_(beta_pi.unsqueeze(1))
+        probs[..., :beta_pi.shape[-1]].add_(beta_pi.unsqueeze(1))
         return probs.to(orig_dtype)
 
     def sample_zt(self, input_ids, t):
