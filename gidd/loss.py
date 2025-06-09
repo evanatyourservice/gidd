@@ -89,15 +89,14 @@ class GiddLoss(Loss):
         log_p_zt = log_p_t.gather(-1, z_t.unsqueeze(-1)).squeeze(-1)
         log_ratio = log_q_zt - log_p_zt
 
-        correction = -log_ratio + log_ratio.exp()
-        elbo = elbo_weights * (kl_loss + correction) + alpha_ratio
+        is_loss = log_ratio.exp() - log_ratio - 1
+        elbo = elbo_weights * (kl_loss + is_loss)
 
-        loss = ws * (kl_loss + correction)
+        loss = ws * (kl_loss + is_loss)
 
         metrics = {
             "kl_loss": (ws * kl_loss.detach() * attention_mask).sum() / (ws * attention_mask).sum(),
-            "log_ratio": (ws * log_ratio.detach() * attention_mask).sum() / (ws * attention_mask).sum(),
-            "ratio_corr": (ws * correction.detach() * attention_mask).sum() / (ws * attention_mask).sum(),
+            "is_loss": (ws * is_loss.detach() * attention_mask).sum() / (ws * attention_mask).sum(),
             "elbo": (elbo.detach() * attention_mask).sum() / attention_mask.sum(),
         }
 
