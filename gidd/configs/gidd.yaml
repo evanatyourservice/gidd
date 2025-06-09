@@ -27,6 +27,6 @@ loss:
   loss_type: gidd
   loss_weighting: dynamic  # [dynamic, clip, none]
   min_loss_weight: 0.0
-  max_loss_weight: 1.0
+  max_loss_weight: 2.0
   loss_scale: 1.0
   reduction: tokenmean
