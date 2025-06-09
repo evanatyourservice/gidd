@@ -31,6 +31,8 @@ Our trained checkpoints are available on HuggingFace under the following links. 
 
 ## Quick Start
 
+0. Clone the repository (recommended version: v1.1.0)
+
 1. Set up the environment:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
