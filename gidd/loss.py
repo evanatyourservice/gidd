@@ -51,8 +51,8 @@ class GiddLoss(Loss):
         c_t = t_gamma.sqrt() * t1m_gamma.sqrt() * B
         c_t_prime = (gamma / 2) * (1 - 2 * t) / (t * t1m) * c_t
 
-        is_mask = (z_t == self.mask_id).float()
-        is_x = (z_t == input_ids).float()
+        is_mask = (z_t == self.mask_id).to(t.dtype)
+        is_x = (z_t == input_ids).to(t.dtype)
 
         alpha_ratio = -1 / (1 - t) - c_t_prime / (1 + c_t)
         weight_on_x = (c_t + (1 - t) * c_t_prime) / ((1 - t)*(1 - t + c_t))
