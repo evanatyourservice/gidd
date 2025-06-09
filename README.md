@@ -31,7 +31,7 @@ Our trained checkpoints are available on HuggingFace under the following links. 
 
 ## Quick Start
 
-0. Clone the repository (recommended version: v1.1.0)
+0. Clone the repository (recommended version: [v1.1.0](https://github.com/dvruette/gidd/tree/v1.1.0)
 
 1. Set up the environment:
 ```bash
