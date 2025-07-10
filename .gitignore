@@ -8,3 +8,4 @@ wandb
 .vscode
 logs
 cache
+data/

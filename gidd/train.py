@@ -223,6 +223,8 @@ def main(config):
 
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
             loss, metrics = ddp_trainer(batch)
+            
+            pbar.set_postfix(loss=f"{loss.item():.4f}")
 
             (loss * config.loss.loss_scale).backward()
 
