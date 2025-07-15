@@ -209,7 +209,7 @@ class QUAD(torch.optim.Optimizer):
                 if original_shape != g_preconditioned.shape:
                     g_preconditioned = g_preconditioned.view(original_shape)
                 
-                preconditioned_grads.append(g_preconditioned.to(dtype=p.dtype))
+                preconditioned_grads.append(trust_region(g_preconditioned).to(dtype=p.dtype))
             
             if group["weight_decay"] > 0:
                 torch._foreach_mul_(params_with_grad, 1 - group["lr"] * group["weight_decay"])
@@ -224,6 +224,7 @@ class QUAD(torch.optim.Optimizer):
 
 
 BETA_L = 0.95
+QUAD4P = False
 
 
 def get_precond_lr(lr, step):
@@ -232,12 +233,12 @@ def get_precond_lr(lr, step):
 
 @torch.compile(fullgraph=True)
 def update_diag_solo(Q, L, G, precond_lr, step):
-    Pg = Q * Q * G
+    Pg = (Q if QUAD4P else Q * Q) * G
     term1 = Pg * Pg
     term2 = 1.0
     ell = torch.amax(term1) + term2
     L.copy_(torch.max(BETA_L * L + (1 - BETA_L) * ell, ell))
-    lr_over_2L = get_precond_lr(precond_lr, step) / (2 * L)
+    lr_over_2L = get_precond_lr(precond_lr, step) / (L if QUAD4P else 2 * L)
     gain = 1 - lr_over_2L * (term1 - term2)
     Q.mul_(gain * gain)
     return Pg
@@ -246,36 +247,47 @@ def update_diag_solo(Q, L, G, precond_lr, step):
 def _diag_update(term1, term2, L, Q, precond_lr, step):
     ell = torch.amax(term1) + term2
     L.copy_(torch.maximum(BETA_L * L + (1 - BETA_L) * ell, ell))
-    lr_over_2L = get_precond_lr(precond_lr, step) / (2 * L)
+    lr_over_2L = get_precond_lr(precond_lr, step) / (L if QUAD4P else 2 * L)
     gain = 1 - lr_over_2L * (term1 - term2)
     Q.mul_(gain * gain)
 
 
 def lb(A_outer: torch.Tensor):
-    x_norm, max_idx = A_outer.norm(dim=1).max(dim=0)
+    max_abs = A_outer.diagonal().max()
 
     def _inner():
-        A = A_outer / x_norm
-        x = A.index_select(0, max_idx).view(-1)
-        x = A.mv(A.mv(x))
-        return A.mv(x / x.norm()).norm() * x_norm.squeeze().clone()
+        A = A_outer / max_abs
+        j = torch.argmax(torch.sum(A * A, dim=1))
+        x = A.index_select(0, j).view(-1)
+        x = A.mv(x).float()
+        x = x / x.norm()
+        return (A.mv(x.to(A.dtype))).norm() * max_abs.squeeze().clone()
 
-    return torch.cond(x_norm > 0, _inner, lambda: x_norm.squeeze().clone())
+    return torch.cond(max_abs > 0, _inner, lambda: max_abs.squeeze().clone())
 
 
 def _dense_update(term1, term2, L, Q, precond_lr, step):
     ell = lb(term1) + term2
     L.copy_(torch.maximum(BETA_L * L + (1 - BETA_L) * ell, ell))
-    lr_over_2L = get_precond_lr(precond_lr, step) / (2 * L)
-    p = Q - lr_over_2L * (term1 @ Q - term2 * Q)
-    p = p - lr_over_2L * (p @ term1 - p * term2)
+    lr_over_2L = get_precond_lr(precond_lr, step) / (L if QUAD4P else 2 * L)
+    # original
+    # p = Q - lr_over_2L * (term1 @ Q - term2 * Q)
+    # p = p - lr_over_2L * (p @ term1 - p * term2)
+    # multiplicative
+    scale1 = 1 + lr_over_2L * term2
+    p = scale1 * Q - lr_over_2L * (term1 @ Q)
+    p = scale1 * p - lr_over_2L * (p @ term1)
+    # matmul
+    # M = -lr_over_2L * term1
+    # M.diagonal().add_(1 + lr_over_2L * term2)
+    # p = M @ Q @ M
     Q.copy_((p + p.T) / 2)
 
 
 @torch.compile(fullgraph=True)
 def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-diagonal preconditioning."""
-    Pg = (Ql * Ql).unsqueeze(1) * G * (Qr * Qr).unsqueeze(0)
+    Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
     
     # left diagonal update
     term1_l = (Pg * Pg).sum(1)
@@ -293,7 +305,7 @@ def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
 @torch.compile(fullgraph=True)
 def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-dense preconditioning."""
-    Pg = (Ql * Ql).unsqueeze(1) * G @ Qr.T @ Qr
+    Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G @ (Qr if QUAD4P else Qr.T @ Qr)
     
     # left diagonal update
     term1_l = (Pg * Pg).sum(1)
@@ -311,7 +323,7 @@ def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
 @torch.compile(fullgraph=True)
 def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-diagonal preconditioning."""
-    Pg = Ql.T @ Ql @ G * (Qr * Qr).unsqueeze(0)
+    Pg = (Ql if QUAD4P else Ql.T @ Ql) @ G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
     
     # left dense update
     term1_l = Pg @ Pg.T
@@ -329,7 +341,7 @@ def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
 @torch.compile(fullgraph=True)
 def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-dense preconditioning."""
-    Pg = Ql.T @ Ql @ G @ Qr.T @ Qr
+    Pg = (Ql if QUAD4P else Ql.T @ Ql) @ G @ (Qr if QUAD4P else Qr.T @ Qr)
     
     # left dense update
     term1_l = Pg @ Pg.T
@@ -342,6 +354,11 @@ def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     _dense_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
     return Pg
+
+
+@torch.compile(fullgraph=True)
+def trust_region(x):
+    return torch.tanh(x / 6.0) * 6.0  # 6.0 is akin to clipping ~0.0001x tails
 
 
 def merge_dims(tensor):
