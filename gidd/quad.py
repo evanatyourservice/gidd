@@ -27,7 +27,7 @@ class QUAD(torch.optim.Optimizer):
         lr_style: str | None = "adam",
         momentum: float = 0.95,
         weight_decay: float = 0.001,
-        preconditioner_lr: float = 0.8,
+        preconditioner_lr: float = 0.75,
         max_size_dense: int = 8192,
         max_skew_dense: float = 1.0,
         normalize_grads: bool = False,
@@ -67,7 +67,7 @@ class QUAD(torch.optim.Optimizer):
             grads.append(p.grad if group_dtype is None else p.grad.to(dtype=group_dtype))
     
         if group["normalize_grads"]:
-            torch._foreach_div_(grads, torch._foreach_add_(torch._foreach_norm(grads), 1e-6))
+            torch._foreach_div_(grads, torch._foreach_add_(torch._foreach_norm(grads), 1e-7))
     
         for p, g in zip(params_with_grad, grads):
             state = self.state[p]
@@ -217,7 +217,7 @@ class QUAD(torch.optim.Optimizer):
             torch._foreach_add_(
                 params_with_grad,
                 preconditioned_grads,
-                alpha=-group["lr"] / 3.0 if group["lr_style"] == "adam" else -group["lr"]
+                alpha=-group["lr"] / 5.0 if group["lr_style"] == "adam" else -group["lr"]
             )
 
         return loss
@@ -358,7 +358,9 @@ def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
 
 @torch.compile(fullgraph=True)
 def trust_region(x):
-    return torch.tanh(x / 6.0) * 6.0  # 6.0 is akin to clipping ~0.0001x tails
+    # tails too aggressive at scale, soft clip
+    # TODO add option to not use this all the time
+    return torch.tanh(x / 3.0) * 3.0
 
 
 def merge_dims(tensor):
