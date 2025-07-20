@@ -81,7 +81,7 @@ torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd optimize
 torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd model.p_uniform=0.1 logging.run_name="'small-gidd+-owt-pu=0.1'"
 
 # GIDD+ (p_0 > 0.0) with QUAD optimizer
-torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd model.p_uniform=0.1 optimizer=quad training.warmup_steps=100 logging.run_name="'small-gidd+-owt-pu=0.1-quad'"
+torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd model.p_uniform=0.1 optimizer=quad training.warmup_steps=0 logging.run_name="'small-gidd+-owt-pu=0.1-quad'"
 
 # MDLM baseline
 torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name mdlm logging.run_name="'small-mdlm-owt'"

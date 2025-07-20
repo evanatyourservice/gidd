@@ -1,6 +1,12 @@
 import math
 import torch
 
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 
 class QUAD(torch.optim.Optimizer):
     """PSGD-QUAD optimizer.
@@ -27,7 +33,7 @@ class QUAD(torch.optim.Optimizer):
         lr_style: str | None = "adam",
         momentum: float = 0.95,
         weight_decay: float = 0.001,
-        preconditioner_lr: float = 0.75,
+        preconditioner_lr: float = 0.7,
         max_size_dense: int = 8192,
         max_skew_dense: float = 1.0,
         normalize_grads: bool = False,
@@ -45,6 +51,13 @@ class QUAD(torch.optim.Optimizer):
             dtype=dtype,
         )
         super().__init__(params, defaults)
+        self.step_count = 0
+        self.param_names = {}
+
+    def set_param_names(self, model):
+        """Set parameter names from model for logging purposes."""
+        for name, param in model.named_parameters():
+            self.param_names[param] = name
 
     def _init_group(
         self,
@@ -58,12 +71,14 @@ class QUAD(torch.optim.Optimizer):
         diags,
         mu_ps,
         state_steps,
+        param_refs,
     ):
         group_dtype = group['dtype']
         for p in group["params"]:
             if p.grad is None:
                 continue
             params_with_grad.append(p)
+            param_refs.append(p)
             grads.append(p.grad if group_dtype is None else p.grad.to(dtype=group_dtype))
     
         if group["normalize_grads"]:
@@ -80,7 +95,7 @@ class QUAD(torch.optim.Optimizer):
                 state["momentum_buffer"] = g.clone()
                 state["merged_shape"] = merge_dims(state["momentum_buffer"])
                 g_reshaped = state["momentum_buffer"].view(state["merged_shape"])
-                scale = ((torch.mean((torch.abs(g_reshaped))**2))**(-1/4))**(1/2 if len(g_reshaped.shape) > 1 else 1.0)
+                scale = (((torch.mean(torch.abs(g_reshaped)) + 0.00035)**2)**(-1/4))**(1/2 if len(g_reshaped.shape) > 1 else 1.0)
                 if g_reshaped.ndim <= 1:
                     state["Q"] = [scale * torch.ones_like(g_reshaped, dtype=dtype)]
                     state["L"] = [torch.zeros([], dtype=dtype, device=g_reshaped.device)]
@@ -116,6 +131,9 @@ class QUAD(torch.optim.Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
+        wandb_logs = {}
+        should_log = WANDB_AVAILABLE and hasattr(wandb, 'run') and wandb.run is not None
+
         for group in self.param_groups:
             params_with_grad: list[torch.Tensor] = []
             grads: list[torch.Tensor] = []
@@ -126,6 +144,7 @@ class QUAD(torch.optim.Optimizer):
             diags: list[list | None] = []
             mu_ps: list[float] = []
             state_steps: list[int] = []
+            param_refs: list[torch.nn.Parameter] = []
 
             self._init_group(
                 group,
@@ -138,6 +157,7 @@ class QUAD(torch.optim.Optimizer):
                 diags,
                 mu_ps,
                 state_steps,
+                param_refs,
             )
 
             if len(params_with_grad) == 0:
@@ -146,10 +166,11 @@ class QUAD(torch.optim.Optimizer):
             torch._foreach_lerp_(momentum_buffers, grads, 1 - group['momentum'])
 
             preconditioned_grads = []
-            for p, g, merged_shape, Q, L, diag, mu_p_size in zip(
+            for i, (p, g, merged_shape, Q, L, diag, mu_p_size) in enumerate(zip(
                 params_with_grad, momentum_buffers, merged_shapes,
                 Qs, Ls, diags, mu_ps
-            ):
+            )):
+                dtype = g.dtype
                 state = self.state[p]
                 
                 state["step"] += 1
@@ -157,16 +178,30 @@ class QUAD(torch.optim.Optimizer):
                 original_shape = g.shape
                 g_reshaped = g.view(merged_shape)
 
+                if state["step"] == 1:
+                    g_reshaped = g_reshaped + torch.randn_like(g_reshaped) * 0.00035
+
+                # get parameter name for logging
+                param_name = self.param_names.get(param_refs[i], None)
+
+                # log preconditioner norms
+                if should_log and param_name is not None:
+                    if g_reshaped.ndim <= 1:
+                        wandb_logs[f"quad/{param_name}/precond_norm"] = Q[0].norm().item()
+                    else:
+                        wandb_logs[f"quad/{param_name}/precond_norm_left"] = Q[0].norm().item()
+                        wandb_logs[f"quad/{param_name}/precond_norm_right"] = Q[1].norm().item()
+
                 if g_reshaped.ndim <= 1:
                     g_preconditioned = update_diag_solo(
                         Q[0], L[0], g_reshaped, group["preconditioner_lr"], state["step"]
                     )
                 else:
-                    if state["step"] % 100 == 0:
+                    if state["step"] % 50 == 0:
                         ql, qr = Q[0], Q[1]
-                        max_l = ql.abs().max()
-                        max_r = qr.abs().max()
-                        rho = (max_l / max_r).sqrt()
+                        rms_l = torch.sqrt((ql**2).mean())
+                        rms_r = torch.sqrt((qr**2).mean())
+                        rho = (rms_l / rms_r).sqrt()
                         Q[0] /= rho
                         Q[1] *= rho
                     
@@ -209,7 +244,15 @@ class QUAD(torch.optim.Optimizer):
                 if original_shape != g_preconditioned.shape:
                     g_preconditioned = g_preconditioned.view(original_shape)
                 
+                assert g_preconditioned.dtype == dtype, f"{g_preconditioned.dtype} != {dtype} for param shape {original_shape}"
+                
+                # log preconditioned gradient norms before trust region
+                if should_log and param_name is not None:
+                    wandb_logs[f"quad/{param_name}/precond_grad_energy"] = g_preconditioned.square().mean().item()
+                    wandb_logs[f"quad/{param_name}/precond_grad_max_abs"] = g_preconditioned.abs().max().item()
+                
                 preconditioned_grads.append(trust_region(g_preconditioned).to(dtype=p.dtype))
+                # preconditioned_grads.append(g_preconditioned.to(dtype=p.dtype))
             
             if group["weight_decay"] > 0:
                 torch._foreach_mul_(params_with_grad, 1 - group["lr"] * group["weight_decay"])
@@ -217,14 +260,20 @@ class QUAD(torch.optim.Optimizer):
             torch._foreach_add_(
                 params_with_grad,
                 preconditioned_grads,
-                alpha=-group["lr"] / 5.0 if group["lr_style"] == "adam" else -group["lr"]
+                alpha=-group["lr"] / 3.0 if group["lr_style"] == "adam" else -group["lr"]
             )
 
+        # log to wandb if available
+        if should_log and wandb_logs:
+            wandb.log(wandb_logs, step=self.step_count, commit=False)
+
+        self.step_count += 1
         return loss
 
 
 BETA_L = 0.95
 QUAD4P = False
+# DAMPING_COEFF = 0.0003
 
 
 def get_precond_lr(lr, step):
@@ -233,6 +282,8 @@ def get_precond_lr(lr, step):
 
 @torch.compile(fullgraph=True)
 def update_diag_solo(Q, L, G, precond_lr, step):
+    # damping = torch.randn_like(G) * G.abs().mean() * DAMPING_COEFF
+    # Pg = (Q if QUAD4P else Q * Q) * (G + damping)
     Pg = (Q if QUAD4P else Q * Q) * G
     term1 = Pg * Pg
     term2 = 1.0
@@ -241,7 +292,7 @@ def update_diag_solo(Q, L, G, precond_lr, step):
     lr_over_2L = get_precond_lr(precond_lr, step) / (L if QUAD4P else 2 * L)
     gain = 1 - lr_over_2L * (term1 - term2)
     Q.mul_(gain * gain)
-    return Pg
+    return (Q if QUAD4P else Q * Q) * G
 
 
 def _diag_update(term1, term2, L, Q, precond_lr, step):
@@ -259,9 +310,9 @@ def lb(A_outer: torch.Tensor):
         A = A_outer / max_abs
         j = torch.argmax(torch.sum(A * A, dim=1))
         x = A.index_select(0, j).view(-1)
-        x = A.mv(x).float()
+        x = A.mv(x)
         x = x / x.norm()
-        return (A.mv(x.to(A.dtype))).norm() * max_abs.squeeze().clone()
+        return (A.mv(x)).norm() * max_abs.squeeze().clone()
 
     return torch.cond(max_abs > 0, _inner, lambda: max_abs.squeeze().clone())
 
@@ -287,6 +338,8 @@ def _dense_update(term1, term2, L, Q, precond_lr, step):
 @torch.compile(fullgraph=True)
 def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-diagonal preconditioning."""
+    # damping = torch.randn_like(G) * G.abs().mean() * DAMPING_COEFF
+    # Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * (G + damping) * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
     Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
     
     # left diagonal update
@@ -299,12 +352,14 @@ def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _diag_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return Pg
+    return (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
 
 
 @torch.compile(fullgraph=True)
 def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-dense preconditioning."""
+    # damping = torch.randn_like(G) * G.abs().mean() * DAMPING_COEFF
+    # Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * (G + damping) @ (Qr if QUAD4P else Qr.T @ Qr)
     Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G @ (Qr if QUAD4P else Qr.T @ Qr)
     
     # left diagonal update
@@ -317,12 +372,14 @@ def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _dense_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return Pg
+    return (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G @ (Qr if QUAD4P else Qr.T @ Qr)
 
 
 @torch.compile(fullgraph=True)
 def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-diagonal preconditioning."""
+    # damping = torch.randn_like(G) * G.abs().mean() * DAMPING_COEFF
+    # Pg = (Ql if QUAD4P else Ql.T @ Ql) @ (G + damping) * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
     Pg = (Ql if QUAD4P else Ql.T @ Ql) @ G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
     
     # left dense update
@@ -335,12 +392,14 @@ def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _diag_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return Pg
+    return (Ql if QUAD4P else Ql.T @ Ql) @ G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
 
 
 @torch.compile(fullgraph=True)
 def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-dense preconditioning."""
+    # damping = torch.randn_like(G) * G.abs().mean() * DAMPING_COEFF
+    # Pg = (Ql if QUAD4P else Ql.T @ Ql) @ (G + damping) @ (Qr if QUAD4P else Qr.T @ Qr)
     Pg = (Ql if QUAD4P else Ql.T @ Ql) @ G @ (Qr if QUAD4P else Qr.T @ Qr)
     
     # left dense update
@@ -353,14 +412,12 @@ def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _dense_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return Pg
+    return (Ql if QUAD4P else Ql.T @ Ql) @ G @ (Qr if QUAD4P else Qr.T @ Qr)
 
 
 @torch.compile(fullgraph=True)
 def trust_region(x):
-    # tails too aggressive at scale, soft clip
-    # TODO add option to not use this all the time
-    return torch.tanh(x / 3.0) * 3.0
+    return torch.tanh(x / 2.0) * 2.0
 
 
 def merge_dims(tensor):
