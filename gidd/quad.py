@@ -32,8 +32,8 @@ class QUAD(torch.optim.Optimizer):
         lr: float = 0.001,
         lr_style: str | None = "adam",
         momentum: float = 0.95,
-        weight_decay: float = 0.001,
-        preconditioner_lr: float = 0.8,
+        weight_decay: float = 0.01,
+        preconditioner_lr: float = 0.6,
         max_size_dense: int = 8192,
         max_skew_dense: float = 1.0,
         normalize_grads: bool = False,
@@ -199,11 +199,12 @@ class QUAD(torch.optim.Optimizer):
                 else:
                     if state["step"] % 50 == 0:
                         ql, qr = Q[0], Q[1]
-                        rms_l = torch.sqrt((ql**2).mean())
-                        rms_r = torch.sqrt((qr**2).mean())
-                        rho = (rms_l / rms_r).sqrt()
-                        Q[0] /= rho
-                        Q[1] *= rho
+                        max_l = torch.amax(torch.abs(ql))
+                        max_r = torch.amax(torch.abs(qr))
+                        if max_l > 0 and max_r > 0:
+                            gmean = torch.sqrt(max_l * max_r)
+                            ql.mul_(gmean / max_l)
+                            qr.mul_(gmean / max_r)
                     
                     term2_target = mu_p_size if group["lr_style"] == "mu-p" else g_reshaped.numel()
 
@@ -259,7 +260,7 @@ class QUAD(torch.optim.Optimizer):
             torch._foreach_add_(
                 params_with_grad,
                 preconditioned_grads,
-                alpha=-group["lr"] / 5.0 if group["lr_style"] == "adam" else -group["lr"]
+                alpha=-group["lr"] / 3.0 if group["lr_style"] == "adam" else -group["lr"]
             )
 
         # log to wandb if available
@@ -270,36 +271,33 @@ class QUAD(torch.optim.Optimizer):
         return loss
 
 
-QUAD4P = False
-
-
 def get_precond_lr(lr, step):
     return torch.clamp(lr * torch.rsqrt(1.0 + step / 10000.0), min=0.1)
 
 
 def get_l_beta(step):
-    return torch.clamp(1.0 - (step + 1)**(-0.7), max=0.999)
+    return 0.95
 
 
 @torch.compile(fullgraph=True)
 def update_diag_solo(Q, L, G, precond_lr, step):
-    Pg = (Q if QUAD4P else Q * Q) * G
+    Pg = Q * Q * G
     term1 = Pg * Pg
     term2 = 1.0
     ell = (torch.amax(term1) + term2).to(torch.float32)
     beta_l = get_l_beta(step)
     L.copy_(torch.max(beta_l * L + (1 - beta_l) * ell, ell))
-    lr_over_2L = (get_precond_lr(precond_lr, step) / (L if QUAD4P else 2 * L)).to(Q.dtype)
+    lr_over_2L = (get_precond_lr(precond_lr, step) / (2 * L)).to(Q.dtype)
     gain = 1 - lr_over_2L * (term1 - term2)
     Q.mul_(gain * gain)
-    return (Q if QUAD4P else Q * Q) * G
+    return Q * Q * G
 
 
 def _diag_update(term1, term2, L, Q, precond_lr, step):
     ell = (torch.amax(term1) + term2).to(torch.float32)
     beta_l = get_l_beta(step)
     L.copy_(torch.maximum(beta_l * L + (1 - beta_l) * ell, ell))
-    lr_over_2L = (get_precond_lr(precond_lr, step) / (L if QUAD4P else 2 * L)).to(Q.dtype)
+    lr_over_2L = (get_precond_lr(precond_lr, step) / (2 * L)).to(Q.dtype)
     gain = 1 - lr_over_2L * (term1 - term2)
     Q.mul_(gain * gain)
 
@@ -322,7 +320,7 @@ def _dense_update(term1, term2, L, Q, precond_lr, step):
     ell = (lb(term1) + term2).to(torch.float32)
     beta_l = get_l_beta(step)
     L.copy_(torch.maximum(beta_l * L + (1 - beta_l) * ell, ell))
-    lr_over_2L = (get_precond_lr(precond_lr, step) / (L if QUAD4P else 2 * L)).to(Q.dtype)
+    lr_over_2L = (get_precond_lr(precond_lr, step) / (2 * L)).to(Q.dtype)
     # original
     # p = Q - lr_over_2L * (term1 @ Q - term2 * Q)
     # p = p - lr_over_2L * (p @ term1 - p * term2)
@@ -340,7 +338,7 @@ def _dense_update(term1, term2, L, Q, precond_lr, step):
 @torch.compile(fullgraph=True)
 def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-diagonal preconditioning."""
-    Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
+    Pg = (Ql * Ql).unsqueeze(1) * G * (Qr * Qr).unsqueeze(0)
     
     # left diagonal update
     term1_l = (Pg * Pg).sum(1)
@@ -352,13 +350,13 @@ def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _diag_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
+    return (Ql * Ql).unsqueeze(1) * G * (Qr * Qr).unsqueeze(0)
 
 
 @torch.compile(fullgraph=True)
 def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-dense preconditioning."""
-    Pg = (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G @ (Qr if QUAD4P else Qr.T @ Qr)
+    Pg = (Ql * Ql).unsqueeze(1) * G @ (Qr.T @ Qr)
     
     # left diagonal update
     term1_l = (Pg * Pg).sum(1)
@@ -370,13 +368,13 @@ def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _dense_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return (Ql if QUAD4P else Ql * Ql).unsqueeze(1) * G @ (Qr if QUAD4P else Qr.T @ Qr)
+    return (Ql * Ql).unsqueeze(1) * G @ (Qr.T @ Qr)
 
 
 @torch.compile(fullgraph=True)
 def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-diagonal preconditioning."""
-    Pg = (Ql if QUAD4P else Ql.T @ Ql) @ G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
+    Pg = (Ql.T @ Ql) @ G * (Qr * Qr).unsqueeze(0)
     
     # left dense update
     term1_l = Pg @ Pg.T
@@ -388,13 +386,14 @@ def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _diag_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return (Ql if QUAD4P else Ql.T @ Ql) @ G * (Qr if QUAD4P else Qr * Qr).unsqueeze(0)
+    return (Ql.T @ Ql) @ G * (Qr * Qr).unsqueeze(0)
 
 
 @torch.compile(fullgraph=True)
 def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-dense preconditioning."""
-    Pg = (Ql if QUAD4P else Ql.T @ Ql) @ G @ (Qr if QUAD4P else Qr.T @ Qr)
+    # Pg = (Ql.T @ Ql) @ G @ (Qr.T @ Qr)
+    Pg = torch.einsum("ab,ac,ce,de,df->bf", Ql, Ql, G, Qr, Qr)
     
     # left dense update
     term1_l = Pg @ Pg.T
@@ -406,7 +405,8 @@ def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     term2_r = term2_target / Qr.shape[0]
     _dense_update(term1_r, term2_r, Lr, Qr, precond_lr, step)
     
-    return (Ql if QUAD4P else Ql.T @ Ql) @ G @ (Qr if QUAD4P else Qr.T @ Qr)
+    # return (Ql.T @ Ql) @ G @ (Qr.T @ Qr)
+    return torch.einsum("ab,ac,ce,de,df->bf", Ql, Ql, G, Qr, Qr)
 
 
 def merge_dims(tensor):

@@ -235,6 +235,9 @@ class DDiTBlock(nn.Module):
     self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
     self.attn_out = nn.Linear(dim, dim, bias=False)
     self.dropout1 = nn.Dropout(dropout)
+    
+    self.q_norm = torch.nn.LayerNorm(dim // n_heads, eps=1e-6, elementwise_affine=False, bias=False)
+    self.k_norm = torch.nn.LayerNorm(dim // n_heads, eps=1e-6, elementwise_affine=False, bias=False)
 
     self.norm2 = LayerNorm(dim)
     self.mlp = nn.Sequential(
@@ -282,6 +285,13 @@ class DDiTBlock(nn.Module):
                     'b s (three h d) -> b s three h d',
                     three=3,
                     h=self.n_heads)
+    
+    # qk norm
+    q, k, v = qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2]
+    q = self.q_norm(q)
+    k = self.k_norm(k)
+    qkv = torch.stack([q, k, v], dim=2)
+    
     cos, sin = rotary_cos_sin
     qkv = apply_rotary_pos_emb(
       qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
@@ -402,5 +412,8 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     x = self.output_layer(x, c)
 
     x = x.scatter_add(-1, indices.unsqueeze(-1), self.logit_bias.to(x.dtype).expand_as(x))
+    
+    # softcap
+    x = torch.tanh(x / 30) * 30
 
     return x
