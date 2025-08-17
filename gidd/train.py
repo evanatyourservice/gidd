@@ -241,15 +241,10 @@ def main(config):
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
 
             param_norm_sq = 0.0
-            layer_norms = {}
-            for name, param in model.named_parameters():
+            for param in model.parameters():
                 if param.requires_grad:
                     p_norm = param.norm()
-                    param_norm_sq += p_norm ** 2
-                    layer_norms[f"layers/{name}/param_norm"] = p_norm.item()
-                    if param.grad is not None:
-                        layer_norms[f"layers/{name}/grad_norm"] = param.grad.norm().item()
-            
+                    param_norm_sq += float(p_norm) ** 2
             param_norm = math.sqrt(param_norm_sq)
 
             optimizer.step()
@@ -282,7 +277,6 @@ def main(config):
                 "norms/param_norm": param_norm,
                 "metrics/step": step,
                 **{f"metrics/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
-                **layer_norms,
             }, step=step, commit=True)
 
             ### EVAL ###
