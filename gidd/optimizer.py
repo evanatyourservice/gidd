@@ -14,7 +14,7 @@ def get_optimizer(config, trainer):
         optimizer.promote = True
         # heavyball.utils.fused_hook(params, heavyball.ForeachPSGDKron, beta=config.optimizer.beta, mars=config.optimizer.mars)
     elif config.optimizer.type == "quad":
-        dtype_str = config.optimizer.get("dtype", None)
+        dtype_str = config.optimizer.dtype
         dtype = None
         if dtype_str is not None:
             if dtype_str == "float32":
@@ -28,13 +28,13 @@ def get_optimizer(config, trainer):
         optimizer = QUAD(
             params,
             lr=config.optimizer.lr,
-            lr_style=config.optimizer.get("lr_style", "adam"),
-            momentum=config.optimizer.get("momentum", 0.95),
+            lr_style=config.optimizer.lr_style,
+            momentum=config.optimizer.momentum,
             weight_decay=config.optimizer.weight_decay,
-            preconditioner_lr=config.optimizer.get("preconditioner_lr", 0.8),
-            max_size_dense=config.optimizer.get("max_size_dense", 8192),
-            max_skew_dense=config.optimizer.get("max_skew_dense", 1.0),
-            normalize_grads=config.optimizer.get("normalize_grads", False),
+            preconditioner_lr=config.optimizer.preconditioner_lr,
+            max_size_dense=config.optimizer.max_size_dense,
+            max_skew_dense=config.optimizer.max_skew_dense,
+            normalize_grads=config.optimizer.normalize_grads,
             dtype=dtype,
         )
     return optimizer

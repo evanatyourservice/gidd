@@ -236,8 +236,8 @@ class DDiTBlock(nn.Module):
     self.attn_out = nn.Linear(dim, dim, bias=False)
     self.dropout1 = nn.Dropout(dropout)
     
-    self.q_norm = torch.nn.LayerNorm(dim // n_heads, eps=1e-6, elementwise_affine=False, bias=False)
-    self.k_norm = torch.nn.LayerNorm(dim // n_heads, eps=1e-6, elementwise_affine=False, bias=False)
+    self.q_norm = torch.nn.LayerNorm(dim // n_heads, eps=1e-6, bias=False)
+    self.k_norm = torch.nn.LayerNorm(dim // n_heads, eps=1e-6, bias=False)
 
     self.norm2 = LayerNorm(dim)
     self.mlp = nn.Sequential(

@@ -238,7 +238,7 @@ def main(config):
             if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
             else:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
+                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e9)
 
             param_norm_sq = 0.0
             for param in model.parameters():

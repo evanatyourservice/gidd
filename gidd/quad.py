@@ -227,23 +227,27 @@ class QUAD(torch.optim.Optimizer):
             torch._foreach_add_(
                 params_with_grad,
                 preconditioned_grads,
-                # adam lr can be simulated by scaling down psgd update by 5
-                alpha=-group["lr"] / 5.0 if group["lr_style"] == "adam" else -group["lr"]
+                # adam lr can be simulated by scaling down psgd update
+                alpha=-group["lr"] / 3.0 if group["lr_style"] == "adam" else -group["lr"]
             )
         return loss
 
 
 def get_precond_lr(lr, step):
-    return torch.clamp(lr * torch.rsqrt(1.0 + step / 10000.0), min=0.3)
+    return torch.clamp(lr * torch.rsqrt(1.0 + step / 10000.0), min=0.1)
 
 
 def get_l_beta(step):
     return 0.95
 
 
+def add_noise(G, eps=1e-8):
+    return G + torch.randn_like(G) * eps
+
+
 @torch.compile(fullgraph=True)
 def update_diag_solo(Q, L, G, precond_lr, step):
-    Pg = Q * Q * G
+    Pg = Q * Q * add_noise(G)
     term1 = Pg * Pg
     term2 = 1.0
     ell = (torch.amax(term1) + term2).to(torch.float32)
@@ -300,7 +304,7 @@ def _dense_update(term1, term2, L, Q, precond_lr, step):
 @torch.compile(fullgraph=True)
 def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-diagonal preconditioning."""
-    Pg = (Ql * Ql).unsqueeze(1) * G * (Qr * Qr).unsqueeze(0)
+    Pg = (Ql * Ql).unsqueeze(1) * add_noise(G) * (Qr * Qr).unsqueeze(0)
     
     # left diagonal update
     term1_l = (Pg * Pg).sum(1)
@@ -318,7 +322,7 @@ def precondition_dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
 @torch.compile(fullgraph=True)
 def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Diagonal-dense preconditioning."""
-    Pg = (Ql * Ql).unsqueeze(1) * G @ (Qr.T @ Qr)
+    Pg = (Ql * Ql).unsqueeze(1) * add_noise(G) @ (Qr.T @ Qr)
     
     # left diagonal update
     term1_l = (Pg * Pg).sum(1)
@@ -336,7 +340,7 @@ def precondition_dD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
 @torch.compile(fullgraph=True)
 def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-diagonal preconditioning."""
-    Pg = (Ql.T @ Ql) @ G * (Qr * Qr).unsqueeze(0)
+    Pg = (Ql.T @ Ql) @ add_noise(G) * (Qr * Qr).unsqueeze(0)
     
     # left dense update
     term1_l = Pg @ Pg.T
@@ -355,7 +359,7 @@ def precondition_Dd(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
 def precondition_DD(Ql, Qr, Ll, Lr, G, precond_lr, step, term2_target):
     """Dense-dense preconditioning."""
     # Pg = (Ql.T @ Ql) @ G @ (Qr.T @ Qr)
-    Pg = torch.einsum("ab,ac,ce,de,df->bf", Ql, Ql, G, Qr, Qr)
+    Pg = torch.einsum("ab,ac,ce,de,df->bf", Ql, Ql, add_noise(G), Qr, Qr)
     
     # left dense update
     term1_l = Pg @ Pg.T
