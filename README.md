@@ -72,13 +72,13 @@ The checkpoints will be saved under `./outputs/{YYYY-MM-DD}/{HH-MM-SS}/checkpoin
 
 ```bash
 # GIDD+ (p_u = 0.0)
-torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd logging.run_name="'small-gidd+-owt-pu=0.0'"
+torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd training.warmup_steps=100 logging.run_name="'small-gidd+-owt-pu=0.0'"
 
 # GIDD+ (p_u = 0.0) with QUAD optimizer
-torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd optimizer=quad training.warmup_steps=100 logging.run_name="'small-gidd+-owt-pu=0.0-quad'"
+torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd optimizer=quad training.warmup_steps=0 logging.run_name="'small-gidd+-owt-pu=0.0-quad'"
 
 # GIDD+ (p_0 > 0.0)
-torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd model.p_uniform=0.1 logging.run_name="'small-gidd+-owt-pu=0.1'"
+torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd model.p_uniform=0.1 training.warmup_steps=100 logging.run_name="'small-gidd+-owt-pu=0.1'"
 
 # GIDD+ (p_0 > 0.0) with QUAD optimizer
 torchrun --nnodes 1 --nproc_per_node 8 gidd/train.py --config-name gidd model.p_uniform=0.1 optimizer=quad training.warmup_steps=0 logging.run_name="'small-gidd+-owt-pu=0.1-quad'"

@@ -82,7 +82,7 @@ class QUAD(torch.optim.Optimizer):
                 state["momentum_buffer"] = g.clone()
                 state["merged_shape"] = merge_dims(state["momentum_buffer"])
                 g_reshaped = state["momentum_buffer"].view(state["merged_shape"])
-                scale = (((torch.mean(torch.abs(add_noise(g_reshaped))))**2)**(-1/4))**(1/2 if len(g_reshaped.shape) > 1 else 1.0)
+                scale = (((torch.mean(torch.abs(g_reshaped)) + 0.00035)**2)**(-1/4))**(1/2 if len(g_reshaped.shape) > 1 else 1.0)
                 if g_reshaped.ndim <= 1:
                     state["Q"] = [scale * torch.ones_like(g_reshaped, dtype=dtype)]
                     state["L"] = [torch.zeros([], dtype=torch.float32, device=g_reshaped.device)]
@@ -159,6 +159,9 @@ class QUAD(torch.optim.Optimizer):
                 
                 original_shape = g.shape
                 g_reshaped = g.view(merged_shape)
+
+                if state["step"] == 1:
+                    g_reshaped = g_reshaped + torch.randn_like(g_reshaped) * 0.00035
 
                 if g_reshaped.ndim <= 1:
                     g_preconditioned = update_diag_solo(
