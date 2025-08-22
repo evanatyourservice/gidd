@@ -112,10 +112,6 @@ def main(config):
 
         optimizer = get_optimizer(config, trainer)
 
-        # set parameter names for QUAD optimizer logging
-        if config.optimizer.type == "quad" and hasattr(optimizer, 'set_param_names'):
-            optimizer.set_param_names(trainer)
-
         state = TrainingState(
             epoch=0,
             epoch_start_step=0,
@@ -131,10 +127,6 @@ def main(config):
             optimizer,
             state
         ) = load_checkpoint_for_training(config.training.resume, device=device, dtype=dtype)
-
-        # set parameter names for QUAD optimizer logging
-        if config.optimizer.type == "quad" and hasattr(optimizer, 'set_param_names'):
-            optimizer.set_param_names(trainer)
 
     with main_process_first():
         train_dl, test_dl = get_dataloaders(config, tokenizer)
@@ -206,6 +198,8 @@ def main(config):
     state.curr_time = curr_time
     prev_time = curr_time
 
+    log_buffer = []
+
     if config.training.resume is not None:
         load_rng_state(config.training.resume, global_rank)
 
@@ -238,7 +232,7 @@ def main(config):
             if config.optimizer.grad_clip_norm and config.optimizer.grad_clip_norm > 0:
                 norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.optimizer.grad_clip_norm)
             else:
-                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e9)
+                norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1e6)
 
             param_norm_sq = 0.0
             for param in model.parameters():
@@ -260,24 +254,29 @@ def main(config):
             step_time = curr_time - prev_time
             prev_time = curr_time
 
-            # log every step
-            logger.log({
+            # no need to all_reduce metrics since these are not that important
+            log_buffer.append({
                 "train/loss": loss.item(),
                 "train/lr": curr_lr,
                 "train/step": step + 1,
+                "train/grad_norm": norm.item(),
+                "train/param_norm": param_norm,
                 "train/epoch": step / len(train_dl),
+                "train/total_tokens": state.total_tokens,
+                "train/total_flops": state.total_flops,
                 "train/tokens_per_sec": batch_tokens / step_time,
                 "train/flops_per_sec": batch_flops / step_time,
                 "train/samples_per_sec": total_batch_size / step_time,
                 "train/it_per_sec": 1 / step_time,
                 "train/avg_it_per_sec": (step + 1) / (curr_time - state.start_time),
-                "train/total_tokens": state.total_tokens,
-                "train/total_flops": state.total_flops,
-                "norms/grad_norm": norm.item(),
-                "norms/param_norm": param_norm,
-                "metrics/step": step,
-                **{f"metrics/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
-            }, step=step, commit=True)
+                **{f"train/{k}": v.item() if isinstance(v, torch.Tensor) else v for k, v in metrics.items()},
+            })
+
+            if ((step + 1) % config.logging.log_freq) == 0:
+                metrics = {k: sum(d[k] for d in log_buffer) / len(log_buffer) for k in log_buffer[0]}
+                logger.log({k: v for k, v in metrics.items()}, step=step)
+                logger.log({"trainer/global_step": step}, step=step)
+                log_buffer = []
 
             ### EVAL ###
 
